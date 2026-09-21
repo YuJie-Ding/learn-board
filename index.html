@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0e1014">
-<title>学习看板</title>
+<meta name="apple-mobile-web-app-title" content="learn-board">
+<meta name="application-name" content="learn-board">
+<title>learn-board</title>
 <style>
 /* =====================================================================
  * style.css —— 学习看板样式（跨专题共用）
@@ -3999,7 +4001,7 @@ window.ROADMAP_DATA.levels.push({
 });
 window.__TOPICS__.push({ id: 'Redis-Learn', name: 'Redis', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
 
-window.ROADMAP_DATA = { topics: window.__TOPICS__ };
+window.ROADMAP_DATA = { siteTitle: 'learn-board', topics: window.__TOPICS__ };
 </script>
 
 <script>
@@ -4061,6 +4063,14 @@ window.ROADMAP_DATA = { topics: window.__TOPICS__ };
 
   var TOPICS = normalizeTopics();
   var IS_MERGED = !!(ROOT.topics && ROOT.topics.length);   // 打包成单文件时 = true
+
+  /* 站点标题：合并版由 build-board.sh 写死（如 'learn-board'），
+     它决定浏览器标签页和手机「添加到主屏幕」后的图标名。
+     单专题模式下为 null，就退回去用当前专题的 title。 */
+  var SITE_TITLE = ROOT.siteTitle || null;
+  function titleOfTopic(t) {
+    return SITE_TITLE || (t && t.overview && t.overview.title) || '学习看板';
+  }
 
   var state = {
     topicIndex: 0,
@@ -4511,7 +4521,7 @@ window.ROADMAP_DATA = { topics: window.__TOPICS__ };
       if (l.status === 'doing') state.open[l.id] = true;
     });
     var t = TOPICS[i];
-    document.title = (t && t.overview && t.overview.title) || '学习看板';
+    document.title = titleOfTopic(t);
     var bt = document.getElementById('brand-title');
     if (bt) bt.textContent = document.title;
     renderTopicTabs();
@@ -4532,7 +4542,7 @@ window.ROADMAP_DATA = { topics: window.__TOPICS__ };
 
   function boot() {
     var ov = curOverview();
-    var title = ov.title || '学习看板';
+    var title = titleOfTopic(TOPICS[state.topicIndex]);
     document.title = title;
     var bt = document.getElementById('brand-title');
     if (bt) bt.textContent = title;
