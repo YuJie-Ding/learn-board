@@ -1,0 +1,4562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e1014">
+<title>学习看板 · 离线版</title>
+<style>
+/* =====================================================================
+ * style.css —— 学习看板样式（跨专题共用）
+ * 呈现层，与数据无关。改数据不需要动这个文件。
+ * ===================================================================== */
+
+:root {
+  --bg:        #0e1014;
+  --panel:     #161920;
+  --panel-2:   #1c2029;
+  --panel-3:   #222732;
+  --border:    #282e3a;
+  --text:      #e7eaf0;
+  --text-dim:  #9aa3b2;
+  --text-mute: #6b7484;
+  --accent:    #4f8cff;
+  --accent-dim:#1e3050;
+
+  --done:      #2ecc71;
+  --done-dim:  #14361f;
+  --doing:     #f5a623;
+  --doing-dim: #3a2a0c;
+  --todo:      #5a6270;
+  --todo-dim:  #1e2229;
+
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .mono { font-family: var(--mono); }
+
+/* ---------- 布局 ---------- */
+#app {
+  display: grid;
+  /* ⚠️ 必须用 minmax(0, 1fr) 而不是 1fr：
+     1fr 的最小值是 auto，会被子元素（比如 pre 里的长代码行）的固有宽度撑开，
+     导致手机上整页横向溢出。minmax(0, …) 把最小值强制为 0。 */
+  grid-template-columns: 268px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  min-width: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.brand-title { font-size: 16px; font-weight: 700; letter-spacing: .2px; }
+.brand-sub { font-size: 12px; color: var(--text-mute); margin-top: 4px; }
+
+/* ---------- 专题切换栏（只在"多专题打包版"里显示） ---------- */
+.topic-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.topic-tab {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.35;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topic-tab:hover { background: var(--panel-3); color: var(--text); }
+.topic-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.topic-tab .tt-name { font-weight: 600; }
+.topic-tab .tt-pct { font-size: 10px; color: var(--text-mute); }
+.topic-tab.active .tt-pct { color: var(--accent); }
+
+.progress-global { display: flex; flex-direction: column; gap: 6px; }
+.pg-label {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--text-dim);
+}
+.pg-track {
+  height: 6px; background: var(--panel-3);
+  border-radius: 99px; overflow: hidden;
+}
+.pg-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--done), #64d98d);
+  border-radius: 99px;
+  transition: width .3s ease;
+}
+
+.level-nav { display: flex; flex-direction: column; gap: 6px; }
+
+.level-item {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  transition: background .15s, border-color .15s;
+}
+.level-item:hover { background: var(--panel-2); }
+.level-item.active { background: var(--panel-3); border-color: var(--border); }
+.level-item.disabled { opacity: .55; cursor: default; }
+.level-item.disabled:hover { background: transparent; }
+
+.level-text { display: flex; flex-direction: column; min-width: 0; }
+.level-name {
+  font-size: 13.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.level-id { font-family: var(--mono); font-size: 12px; color: var(--text-mute); margin-right: 3px; }
+.level-meta { font-size: 11px; color: var(--text-mute); }
+
+.dot { width: 8px; height: 8px; border-radius: 99px; display: inline-block; }
+.dot.done { background: var(--done); }
+.dot.doing { background: var(--doing); box-shadow: 0 0 0 3px rgba(245,166,35,.15); }
+.dot.todo { background: var(--todo); }
+
+.sidebar-foot {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.hint { font-size: 11.5px; color: var(--text-mute); }
+.hint code { font-size: 11px; color: var(--text-dim); }
+
+/* ---------- 主区 ---------- */
+.main { padding: 34px 40px 90px; max-width: 1080px; min-width: 0; }
+.loading { color: var(--text-mute); }
+
+.page-head { margin-bottom: 26px; }
+.page-title { font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: .2px; }
+.page-sub { color: var(--text-dim); font-size: 14px; margin-bottom: 14px; }
+
+.head-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.head-cell {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 13px;
+}
+.head-cell .k { font-size: 11px; color: var(--text-mute); margin-bottom: 3px; }
+.head-cell .v { font-size: 13px; color: var(--text); }
+
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag {
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--accent-dim);
+  color: #9dc0ff;
+  border: 1px solid #2b4776;
+}
+
+/* ---------- 过滤器 ---------- */
+.toolbar {
+  display: flex; align-items: center; gap: 8px;
+  margin: 20px 0 14px;
+  flex-wrap: wrap;
+}
+.filter-btn {
+  font: inherit; font-size: 12.5px;
+  padding: 6px 13px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all .15s;
+}
+.filter-btn:hover { color: var(--text); border-color: #37404f; }
+.filter-btn.active { background: var(--accent-dim); border-color: #2b4776; color: #9dc0ff; }
+.toolbar .count { font-size: 12px; color: var(--text-mute); margin-left: auto; }
+
+/* ---------- 模块 ---------- */
+.module { margin-bottom: 34px; }
+.module-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-bottom: 9px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.module-badge {
+  font-family: var(--mono); font-size: 12px;
+  color: #9dc0ff; background: var(--accent-dim);
+  border: 1px solid #2b4776; border-radius: 6px;
+  padding: 1px 7px;
+}
+.module-title { font-size: 17px; font-weight: 650; margin: 0; }
+.module-desc { font-size: 12.5px; color: var(--text-mute); margin-left: auto; text-align: right; }
+
+/* ---------- 课程卡片 ---------- */
+.lesson {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--todo);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.lesson.done  { border-left-color: var(--done); }
+.lesson.doing { border-left-color: var(--doing); }
+.lesson.todo  { border-left-color: var(--todo); opacity: .88; }
+
+.lesson-head {
+  display: grid;
+  grid-template-columns: 52px 1fr auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+.lesson-head:hover { background: var(--panel-2); }
+
+.lesson-id { font-family: var(--mono); font-size: 12.5px; color: var(--text-mute); }
+.lesson-title { font-size: 15px; font-weight: 600; }
+
+.badge {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 99px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.badge.done  { background: var(--done-dim);  color: #7ee2a4; border-color: #205c36; }
+.badge.doing { background: var(--doing-dim); color: #f7c164; border-color: #6b4a10; }
+.badge.todo  { background: var(--todo-dim);  color: var(--text-mute); border-color: var(--border); }
+.badge.w-high { background: #3a1a1a; color: #ff9c9c; border-color: #6b2b2b; }
+.badge.w-mid  { background: #2b2618; color: #e0c37a; border-color: #574a24; }
+.badge.w-low  { background: var(--todo-dim); color: var(--text-mute); border-color: var(--border); }
+
+.meta { font-size: 11.5px; color: var(--text-mute); white-space: nowrap; }
+.caret { color: var(--text-mute); font-size: 12px; width: 14px; text-align: center; }
+
+.lesson-body {
+  padding: 4px 18px 18px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.section { margin-top: 16px; }
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  margin-bottom: 7px;
+  display: flex; align-items: center; gap: 7px;
+}
+.section-title::before {
+  content: ""; width: 3px; height: 12px; border-radius: 2px; background: #37404f;
+}
+.section.plan .section-title::before   { background: #4f8cff; }
+.section.concept .section-title::before{ background: #a78bfa; }
+.section.exp .section-title::before    { background: #38bdf8; }
+.section.find .section-title::before   { background: #2ecc71; }
+.section.pit .section-title::before    { background: #f87171; }
+.section.quiz .section-title::before   { background: #f5a623; }
+
+.section ul { margin: 0; padding-left: 20px; }
+.section li { margin: 3px 0; color: var(--text-dim); font-size: 13.5px; }
+.section li strong { color: var(--text); font-weight: 600; }
+
+pre.code {
+  background: #0b0d11;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 11px 13px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #c8d3e6;
+  margin: 8px 0 0;
+  white-space: pre;
+}
+
+.kv { font-size: 13.5px; color: var(--text-dim); margin: 5px 0; }
+.kv b { color: var(--text); font-weight: 600; }
+
+.qa {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 9px;
+}
+.qa-q { font-size: 13.5px; color: var(--text-dim); margin-bottom: 2px; }
+.qa-q::before { content: "Q "; font-weight: 700; color: #8b93a1; font-family: var(--mono); }
+
+.qa-label {
+  font-size: 10.5px;
+  letter-spacing: .8px;
+  color: var(--text-mute);
+  margin: 10px 0 4px;
+}
+/* 学生原话 —— 最醒目 */
+.qa-mine {
+  font-size: 14px;
+  color: #eef3fb;
+  background: #0d1119;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 9px 12px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+.qa-mine.unanswered {
+  color: var(--text-mute);
+  font-style: italic;
+  border-left-color: #39414f;
+}
+/* 我的纠正 —— 次级 */
+.qa-note {
+  font-size: 13px;
+  color: var(--text-dim);
+  background: rgba(245,166,35,.05);
+  border-left: 3px solid var(--doing);
+  border-radius: 6px;
+  padding: 9px 12px;
+  white-space: pre-wrap;
+}
+.qa-note b { color: #f7c164; }
+
+/* 历史问答区块（方向调整前的记录） */
+.history-block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.history-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+}
+.history-block .section { margin-top: 0; }
+.history-block .section-title { display: none; }
+
+.empty {
+  background: var(--panel);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 26px 22px;
+  color: var(--text-mute);
+  font-size: 13.5px;
+}
+.empty h3 { margin: 0 0 8px; font-size: 15px; color: var(--text-dim); font-weight: 600; }
+
+.notice {
+  background: var(--doing-dim);
+  border: 1px solid #6b4a10;
+  border-radius: var(--radius);
+  padding: 12px 15px;
+  font-size: 13px;
+  color: #f0cd8a;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 900px) {
+  #app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; height: auto; }
+  .main { padding: 22px 18px 70px; }
+  .lesson-head { grid-template-columns: 44px 1fr auto; }
+  .lesson-head .meta, .lesson-head .badge.w-high,
+  .lesson-head .badge.w-mid, .lesson-head .badge.w-low { display: none; }
+
+  /* 手机上让代码换行而不是横向滚动 —— 横滑看代码体验很差 */
+  pre.code { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  /* 长链接 / 长英文单词也不要把页面撑宽 */
+  .kv, .section ul li, .qa-q, .qa-note, .page-sub { overflow-wrap: anywhere; }
+
+  /* 真·小屏：专题标签改成可以横向滑动的一行，别挤成两行 */
+  .topic-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 12px; }
+  .topic-tab { flex: 0 0 auto; }
+
+  /* 模块标题栏：窄屏上别让标题和说明抢宽度 —— 说明换到第二行 */
+  .module-head { flex-wrap: wrap; }
+  .module-desc { margin-left: 0; text-align: left; flex: 0 0 100%; }
+
+  /* 顶部/主区的大留白收紧一点 */
+  .sidebar { padding: 18px 14px; }
+  .page-head { margin-bottom: 16px; }
+}
+</style>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar" class="sidebar">
+      <div id="topic-tabs" class="topic-tabs" style="display:none"></div>
+      <div class="brand">
+        <div class="brand-title" id="brand-title"></div>
+        <div class="brand-sub" id="brand-sub"></div>
+      </div>
+      <div id="progress-global" class="progress-global"></div>
+      <nav id="level-nav" class="level-nav"></nav>
+      <div class="sidebar-foot">
+        <div class="hint">离线版 · 无需网络</div>
+        <div class="hint">顶部标签切换专题</div>
+      </div>
+    </aside>
+    <main id="main" class="main">
+      <div class="loading">正在加载数据…</div>
+    </main>
+  </div>
+
+<script>
+/* =====================================================================
+ * 数据区：每个专题一段，形如
+ *   window.ROADMAP_DATA = { levels: [] };   ← 先重置
+ *   ...plan.js...  ...L0.js... ...L1.js...
+ *   window.__TOPICS__.push({ id, name, overview, levels });
+ * 最后统一交给 app.js（它认 { topics: [...] } 这种结构）
+ * ===================================================================== */
+window.__TOPICS__ = [];
+
+/* ===================== 专题：MySQL [Database-Learn] ===================== */
+window.ROADMAP_DATA = { levels: [] };
+/* =====================================================================
+ * plan.js —— 学习路线总览
+ * ---------------------------------------------------------------------
+ * 【给后续 AI 的交接说明，请先读完这一段再动手】
+ *
+ * 1. 本看板是"数据 / 呈现"分离的：
+ *      - roadmap/data/*.js  → 只放数据（本文件 + L0.js + L1.js + 以后每个层级一个）
+ *      - roadmap/index.html / style.css / app.js → 只负责呈现，改数据不用动它们
+ *
+ * 2. 新会话开始时：
+ *      a. 先读工作区根目录的 `MySQL学习指导.md`（用户自己写的教学规则，必须遵守）
+ *      b. 再读 `roadmap/README.md`（数据格式约定）
+ *      c. 再读 `roadmap/data/L1.js`，找 status 为 "doing" 的课，从那里继续
+ *
+ * 3. 每讲完一节课，请更新对应的课：
+ *      - status: 'todo' → 'doing' → 'done'
+ *      - findings: 追加"学到的结论"（一句话一条）
+ *      - quiz: 追加"我问了什么 + 学生怎么答的 + 纠正了什么"
+ *      - pitfalls: 追加学生踩过的坑
+ *      - experiment.file: 对应 labNN.sql
+ *
+ * 4. 开新层级时：复制 L1.js 的结构新建 L2.js，然后在下面 levels 里加一行。
+ *    注意：开新层级前要**先把这个层级的全部课程规划写进数据文件**，
+ *    这样用户可以开一个干净的会话从头学，不会因为上下文超限而丢掉规划。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+
+window.ROADMAP_DATA.overview = {
+  title: 'MySQL 面试学习看板',
+  subtitle: '目标：国内 Java 后端开发岗 · 每个知识点都用实验验证',
+  workspace: '/Users/dingyujie/数据/Code/Database-Learn',
+
+  // 学生档案（新会话的 AI 请据此调整讲解深度）
+  student: {
+    background: '对日开发初级工程师，准备跳槽国内 Java 后端岗；macOS + VS Code；练习项目 Spring Boot 4.1.1 + Java 21',
+    level: '会基本 CRUD；索引 / EXPLAIN / 事务与锁 / SQL 优化 / 存储引擎 完全不懂',
+    strength: '学过红黑树、AVL 树和高等数学，有能力理解 B+ 树等底层原理',
+    weakness: '习惯"先看懂再动手"，需要被推着先动手；易拼错标识符；会把 NULL 和 空字符串 / 0 混为一谈',
+    rulesFile: 'MySQL学习指导.md'
+  },
+
+  // 层级总览。每加一个层级，在这里加一行，并在 data/ 下建对应的 js 文件。
+  levels: [
+    {
+      id: 'L0',
+      file: 'data/L0.js',
+      title: 'Docker 环境基础（前置）',
+      status: 'done',
+      meta: '4 节 · 已完成',
+      summary: '镜像/容器/卷/端口映射、compose 解读、docker exec 与退出码。数据库还没开始，先把环境跑通。'
+    },
+    {
+      id: 'L1',
+      file: 'data/L1.js',
+      title: 'SQL 语言基础',
+      status: 'doing',
+      meta: '15 节 · 进行中',
+      summary: '查询的执行骨架、聚合与集合、多表、窗口函数、写操作。目标是能独立写出面试常见手撕题。'
+    },
+    {
+      id: 'L2',
+      file: null,
+      title: '表设计 / 范式',
+      status: 'todo',
+      meta: '约 5 节 · 未规划',
+      summary: '三大范式与反范式、主键选型、金额与时间字段类型、为什么不建外键。'
+    },
+    {
+      id: 'L3',
+      file: null,
+      title: '索引 ⭐ 最重要',
+      status: 'todo',
+      meta: '约 10 节 · 未规划',
+      summary: 'B+ 树、聚簇/二级索引、回表、覆盖索引、最左前缀、索引下推、6 种索引失效场景。'
+    },
+    {
+      id: 'L4',
+      file: null,
+      title: '事务与锁 ⭐ 最重要',
+      status: 'todo',
+      meta: '约 10 节 · 未规划',
+      summary: 'ACID 靠什么实现、四种隔离级别、MVCC 版本链与 ReadView、间隙锁/临键锁、死锁。'
+    },
+    {
+      id: 'L5',
+      file: null,
+      title: '存储引擎与内部机制',
+      status: 'todo',
+      meta: '约 5 节 · 未规划',
+      summary: 'InnoDB vs MyISAM、Buffer Pool 的改良 LRU、redo/undo/binlog 三种日志、两阶段提交。'
+    },
+    {
+      id: 'L6',
+      file: null,
+      title: '性能优化与工程实践 ⭐ 面试重头戏',
+      status: 'todo',
+      meta: '约 8 节 · 未规划',
+      summary: 'EXPLAIN 全字段、慢查询日志、深分页优化、优化器不选索引的原因、分库分表、读写分离。'
+    }
+  ]
+};
+/* =====================================================================
+ * L0.js —— Docker 环境基础（前置课，已学完）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * quiz[].mine = 学生当时的原句（未回答写 null）；note = 我的讲解/纠正
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L0',
+  title: 'Docker 环境基础（前置）',
+  subtitle: '先把 MySQL 跑起来，再学数据库',
+  status: 'done',
+  goal: '能自己起一个带持久化的 MySQL 容器，知道容器出问题时从哪几个地方看。',
+  estimate: '4 节 · 约 2 小时',
+
+  modules: [
+    {
+      id: 'D',
+      title: 'Docker 与容器',
+      lessons: [
+        {
+          id: 'D1',
+          title: '镜像 / 容器 / 卷 / 端口映射',
+          status: 'done',
+          weight: '中',
+          estimate: '30 min',
+          plan: '理解四个核心概念，以及 container 删除后数据去哪了。',
+          concepts: [
+            'Image 镜像 = 只读模板，Container 容器 = 镜像跑起来的实例',
+            '容器状态四种：Created → Running → Exited → Removed',
+            'Volume 命名卷用于持久化，容器删了卷还在'
+          ],
+          experiment: {
+            file: null,
+            sql: [],
+            expected: 'docker run hello-world 输出 Hello from Docker!',
+            evidence: '学生执行并描述了结果（容器 Exited、镜像仍在）'
+          },
+          findings: [
+            'docker ps 只看运行中的容器；docker ps -a 才能看到已退出的容器',
+            '容器跑完程序退出后不会消失，只是变成 Exited 状态',
+            '已退出容器会一直占磁盘：docker rm <id> 删单个，docker container prune 批量清理'
+          ],
+          pitfalls: [
+            '学生第一反应是"容器不见了"，以为被自动删除，实际只是退出了'
+          ],
+          quiz: [
+            {
+              q: 'hello-world 跑完后容器还在吗？用什么命令查？',
+              mine: '输出完后，容器不见了，似乎自动停下了 docker ps看不到了',
+              note: '❌ 容器没有消失，只是变成 Exited 状态。docker ps 只看运行中的容器，所以看不到。正确命令是 docker ps -a。你后来自己也验证了这一步。'
+            },
+            {
+              q: 'hello-world 镜像还在本地吗？用什么命令查？',
+              mine: '镜像还在，docker images能看到有一个hello-world:latest',
+              note: '✅ 正确。容器删了镜像还在，想彻底清掉要 docker rmi。'
+            },
+            {
+              q: '不挂 Volume 的话，删掉 MySQL 容器重建，表和数据会怎样？',
+              mine: '不挂Volume的话，删掉容器就什么都没了，数据不会保留',
+              note: '✅ 正确。数据写在容器的可写层里，随容器一起删掉。'
+            },
+            {
+              q: 'Exited (0) 里括号中的 0 是什么意思？',
+              mine: null,
+              note: '未回答。0 是容器主进程的退出码：0 = 正常结束；1 = 一般错误；125 = docker 命令本身参数写错；127 = 容器里找不到要执行的命令；137 = 128+9 被 SIGKILL（OOM 或 stop 超时）；143 = 128+15 被 SIGTERM 正常终止。'
+            }
+          ]
+        },
+        {
+          id: 'D2',
+          title: 'compose.yaml 解读与端口映射',
+          status: 'done',
+          weight: '中',
+          estimate: '30 min',
+          plan: '看懂 student 自己写/生成的 compose.yaml，理解每一行的作用。',
+          concepts: [
+            '端口映射 "3306:3306" 是"宿主机:容器"，右边由镜像写死，左边才能自由改',
+            '端口映射是转发，不是转换：写 3306:3307 不会让容器监听到 3307',
+            'Volume 必须挂到镜像真正的数据目录上，挂错 = 数据仍在可写层 = 白挂'
+          ],
+          experiment: {
+            file: 'compose.yaml',
+            sql: [],
+            expected: 'docker compose up -d 后 docker compose ps 显示两个容器 healthy',
+            evidence: 'AI 直接查了 docker ps / docker inspect，两个容器 healthy'
+          },
+          findings: [
+            'MySQL 数据目录 /var/lib/mysql 和 PG 的 /var/lib/postgresql/data 都是镜像 Dockerfile 规定的，不是 Docker 规定的',
+            '验证方式：docker exec pg-learn env | grep PGDATA',
+            'compose 里 restart: no 意味着重启电脑后数据库不会自动起来，需要手动 start',
+            '.env 里是明文密码，必须写进 .gitignore',
+            'pg-learn 曾以 Exited (137) 退出：OOMKilled=false，日志显示收到了 SIGTERM 开始关库后被杀 —— 典型原因是 docker compose up 前台运行连按两次 Ctrl+C'
+          ],
+          pitfalls: [
+            '学生把容器名敲成 pg-leran（字母颠倒）→ 报 exit 1',
+            '学生用 docker compose up 前台运行，连按两次 Ctrl+C → 容器被 SIGKILL'
+          ],
+          quiz: [
+            {
+              q: '"3306:3306" 里左右分别是什么？写反成 3306:3307 会怎样？',
+              mine: '左边是本机端口，右边是容器端口',
+              note: '前半 ✅。后半没答：写成 3306:3307 时，容器里只有 3306 在监听，3307 没人理你 → 连接被拒绝。端口映射只是转发，不会帮你改端口。'
+            },
+            {
+              q: '为什么 MySQL 的数据目录是 /var/lib/mysql，PG 是 /var/lib/postgresql/data？',
+              mine: '这个不知道',
+              note: '由各自镜像的 Dockerfile 决定（不是 Docker 规定的）。已实测确认：docker exec pg-learn env | grep PGDATA → PGDATA=/var/lib/postgresql/data。推论：Volume 必须挂到镜像真正写数据的那个目录，挂错路径 = 数据仍写在可写层 = 卷白挂了。'
+            }
+          ]
+        },
+        {
+          id: 'D3',
+          title: 'docker exec、进入容器与退出码',
+          status: 'done',
+          weight: '中',
+          estimate: '30 min',
+          plan: '会用 docker exec 进容器跑命令，看得懂报错和退出码。',
+          concepts: [
+            '-i 保持 STDIN 打开，-t 分配伪终端（pseudo-TTY），二者是固定搭配 -it',
+            '没有 -t 时，mysql/psql/bash 检测不到终端 → 没有提示符、行编辑、补全',
+            'docker exec -it 容器名 要执行的命令'
+          ],
+          experiment: {
+            file: null,
+            sql: [],
+            expected: 'docker exec -it mysql-learn mysql -uroot -p 能进入 mysql> 提示符',
+            evidence: '学生成功进入交互式命令行'
+          },
+          findings: [
+            '退出码 0 = 正常结束；1 = 一般错误（如容器不存在）',
+            '125 = docker 命令本身的参数写错了',
+            '127 = 容器里找不到要执行的命令（比如把 SQL 敲进容器，或敲了 exec）',
+            '137 = 128+9，被 SIGKILL（常见原因：docker kill、stop 超时、OOM）',
+            '143 = 128+15，被 SIGTERM 正常终止（docker stop 默认行为）'
+          ],
+          pitfalls: [
+            '学生敲 docker exec --it（两个横杠）→ exit 125',
+            '学生敲 docker exec -it pg-learn exec → exit 127（exec 是 docker 子命令，不是容器里的程序）',
+            '学生把 ALTER TABLE 语句直接敲在 zsh 里 → exit 127'
+          ],
+          quiz: [
+            {
+              q: '-it 里的 -i 和 -t 分别是什么作用？',
+              mine: '-it好像是开启交互模式？-t实测，不加会输入东西无效了，貌似输入无法进入容器里',
+              note: '方向对，但不精确：-i 保持 STDIN 打开（输入才进得去），-t 分配伪终端 TTY。去掉 -t 后程序检测不到终端，会关掉提示符 / 行编辑 / 补全。另外你敲的是 --it（两个横杠），那个报的 exit 125 是 docker 参数写错，不是容器的问题。'
+            }
+          ]
+        },
+        {
+          id: 'D4',
+          title: '客户端参数差异与字符集',
+          status: 'done',
+          weight: '低',
+          estimate: '30 min',
+          plan: '记住 mysql 和 psql 客户端参数的含义差异，别在两个客户端之间手滑。',
+          concepts: [
+            'mysql 的 -p 是 password，psql 的 -p 是 port（意思正好相反）',
+            'psql 不写 -d 时，会用"当前用户名"当数据库名去连',
+            'psql 默认把结果送进 pager（less），按 q 退出'
+          ],
+          experiment: {
+            file: null,
+            sql: [
+              'docker exec -it pg-learn psql -U postgres',
+              'select current_database();',
+              '\\pset pager off'
+            ],
+            expected: '不写 -d 时 current_database() 返回 postgres',
+            evidence: '未实测；结论来自官方文档'
+          },
+          findings: [
+            'mysql 客户端 -u 是用户、-p 是密码；psql 是 -U 用户、-d 数据库、-p 端口',
+            'MySQL 客户端默认不用 pager，psql 默认用（这是 psql 的 less 行为，不是输出丢失）',
+            '容器内 LANG 为空，mysql 客户端默认字符集不是 utf8mb4，命令行调用要加 --default-character-set=utf8mb4'
+          ],
+          pitfalls: [
+            '学生看到 \\l 的结果"按 q 就退出了"，以为是输出不保留 —— 实际是在 less 里',
+            '学生的 macOS 终端无法输入中文（打字结果为空），所以所有含中文的数据改用英文标识'
+          ],
+          quiz: [
+            {
+              q: '为什么 MySQL 是 -uroot，PostgreSQL 是 -U postgres？',
+              mine: '它们自己规定的命令格式吧？',
+              note: '方向对，但要知道"为什么"：两套不同的历史约定。MySQL 是 1995 年的老式 CLI 风格（-u 用户、-p 密码），psql 遵循 Unix/GNU 习惯（-U 用户、-d 数据库、-h 主机、-p 端口）。真正的坑在最后一条：小写 -p 在 MySQL 是密码，在 psql 是端口，意思正好相反。'
+            },
+            {
+              q: '-d learn 是什么？不写 -d 会连到哪个库？',
+              mine: '-d learn就是连接到learn数据库，不加的话，是不指定吗？',
+              note: '前半 ✅。后半 ❌ —— 不写 -d 时 psql 会拿"当前用户名"当数据库名去连，所以 psql -U postgres 实际连的是 postgres 库。这也是为什么很多人执行 psql -U myuser 会报 database "myuser" does not exist。'
+            }
+          ]
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L1.js —— SQL 语言基础（15 节）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ *
+ * quiz[].mine = 学生当时的回答（逐字原句），未回答写 null
+ * quiz[].note = 我的讲解 / 纠正
+ *
+ * 【交接给后续 AI】
+ *   - status 为 'doing' 的课就是当前进度，从那里继续
+ *   - 'done' 的课已经写入了结论 / 坑 / 问答，不必重讲，最多抽查
+ *   - 'todo' 的课只有 plan 和 concepts（大纲），讲到时再补细节
+ *   - 讲完一节请立刻把 findings / pitfalls / quiz 补上，并把 status 改掉
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L1',
+  title: 'SQL 语言基础',
+  subtitle: '从"会写 CRUD"到"能独立写出面试手撕题"',
+  status: 'doing',
+  goal: '掌握 SELECT 的完整执行骨架，能独立写出多表 JOIN、分组取 TopN、窗口函数三类高频手撕题。',
+  estimate: '15 节 · 净学习约 11 小时 · 加 LeetCode 30 题共约 20 小时',
+  interviewRefs: ['Q11 COUNT 家族', 'Q18 WHERE vs HAVING', '手撕题：分组取 TopN / 连续 N 天'],
+
+  environment: {
+    container: 'mysql-learn',
+    version: 'MySQL 8.0.46',
+    database: 'learn',
+    charset: 'utf8mb4 / utf8mb4_0900_ai_ci',
+    connect: 'docker exec -it mysql-learn mysql -uroot -p',
+    runLabFile: 'docker exec -i mysql-learn mysql -uroot -p666666 --force --default-character-set=utf8mb4 learn < labNN.sql',
+    note: '运行 lab 文件一律加 --force，因为部分语句是"故意报错"的；不加会中断整个文件'
+  },
+
+  /* 方向调整前的历史问答：当时还在做 MySQL / PostgreSQL 对比，
+     后来学生决定只学 MySQL。保留这段是因为里面暴露的两个概念错误
+     （布尔类型、UNSIGNED）在 L1 / L2 还会再遇到。 */
+  history: [
+    {
+      title: 'MySQL vs PostgreSQL 建表语句对比（方向已废弃，但错误值得记）',
+      quiz: [
+        {
+          q: '这两张建表语句（MySQL 版 / PostgreSQL 版）你能数出几处差异？',
+          mine: '1、UNSIGNED和AUTO_INCREMENT。感觉mysql的更合适。TINYINT(1) DEFAULT 1,和BOOLEAN DEFAULT TRUE。DATETIME DEFAULT CURRENT_TIMESTAMP和TIMESTAMPTZ DEFAULT now()',
+          note: '三处差异都找对了 ✅。但"感觉 mysql 的更合适"这个判断反了：MySQL 根本没有真正的布尔类型，BOOL / BOOLEAN 只是 TINYINT(1) 的别名，存的是 0 / 1；PostgreSQL 的 BOOLEAN 才是真类型。另外 BIGINT UNSIGNED 的上限 18446744073709551615 超过 Java 的 long 上限 9223372036854775807，映射回 Java 会溢出。'
+        },
+        {
+          q: 'TIMESTAMPTZ 里的 TZ 是什么意思？它跟 DATETIME 最大的区别在哪？',
+          mine: '2、3、不知道',
+          note: '未回答。TZ = timezone：TIMESTAMPTZ 内部存 UTC 时间戳、按会话时区换算显示。这块以后用不上（已决定只学 MySQL），但 MySQL 自己的 DATETIME vs TIMESTAMP 是 L2 的正题，那时会动手验证 2038 问题和时区影响。'
+        },
+        {
+          q: 'MySQL 到底有没有真正的布尔类型？',
+          mine: '2、3、不知道',
+          note: '未回答。答案是没有：BOOL / BOOLEAN 都是 TINYINT(1) 的别名，本质上是个 1 字节整数。MySQL 8.0.17 起整数类型的显示宽度 (N) 被废弃了，但 TINYINT(1) 特意保留 —— 因为各种 ORM 和连接器靠它识别"这是布尔字段"。'
+        }
+      ]
+    }
+  ],
+
+  modules: [
+    /* ================= 模块 A：查询的执行骨架 ================= */
+    {
+      id: 'A',
+      title: '查询的执行骨架',
+      desc: '先建立"机器按什么顺序干活"的模型，后面所有奇怪现象都从这里解释。',
+      lessons: [
+        {
+          id: 'A1',
+          title: 'SELECT 执行顺序',
+          status: 'done',
+          weight: '高',
+          estimate: '45 min',
+          plan: '弄懂"书写顺序 ≠ 执行顺序"，并用它解释 WHERE 里为什么用不了别名。',
+          concepts: [
+            '执行顺序：FROM → JOIN → ON → WHERE → GROUP BY → HAVING → SELECT → DISTINCT → ORDER BY → LIMIT',
+            'WHERE 在 SELECT 之前执行 → 别名此时不存在',
+            'ORDER BY 在 SELECT 之后执行 → 别名可以用'
+          ],
+          experiment: {
+            file: 'lab01.sql',
+            sql: [
+              "SELECT name AS n FROM employees WHERE n = 'Alice';",
+              "SELECT name AS n FROM employees ORDER BY n;"
+            ],
+            expected: "第一条报 ERROR 1054 (42S22): Unknown column 'n' in 'where clause'；第二条成功返回 8 行，按名字字母序",
+            errors: '若第一条不报错而是返回空，说明不是 MySQL 原生行为（工具 / ORM 改写了 SQL）',
+            evidence: '学生未贴出输出；表结构和数据由 AI 直接查库确认'
+          },
+          findings: [
+            'SQL 从 SELECT 开始写，但机器从 FROM 开始跑；SELECT 排在第 7 位',
+            'WHERE 用不了别名，是因为它执行时 SELECT 还没跑',
+            'ORDER BY 排在 SELECT 之后，所以能用别名'
+          ],
+          pitfalls: [
+            '容器名敲成 pg-leran（字母颠倒）→ exit 1',
+            'docker exec --it（两个横杠）→ exit 125'
+          ],
+          quiz: [
+            {
+              q: 'HAVING 能不能用 SELECT 里定义的别名？',
+              mine: null,
+              note: '未回答（当时学生说"我先不回答问题"）。不过后来在 A2 的实验 C 里实际写了 HAVING cnt >= 3 并且跑通了，等于用实验验证了结论：MySQL 允许在 HAVING 用列别名，但这是 MySQL 的扩展，标准 SQL 不允许。'
+            },
+            {
+              q: "SELECT name, salary*12 AS annual FROM employees WHERE annual > 150000; 会成功吗？",
+              mine: null,
+              note: "未回答。会报 ERROR 1054 Unknown column 'annual' in 'where clause'，原理与第一题相同：WHERE 执行时别名还不存在。"
+            }
+          ]
+        },
+        {
+          id: 'A2',
+          title: 'WHERE vs HAVING 与聚合函数',
+          status: 'done',
+          weight: '高',
+          estimate: '45 min',
+          plan: '搞清 WHERE 过滤"行"、HAVING 过滤"组"，以及聚合函数为什么不能进 WHERE。',
+          concepts: [
+            'WHERE 在 GROUP BY 之前执行，过滤的是原始的行',
+            'HAVING 在 GROUP BY 之后执行，过滤的是分组后的结果',
+            '聚合函数（SUM / AVG / COUNT）只在分组阶段之后才有值，所以不能出现在 WHERE'
+          ],
+          experiment: {
+            file: 'lab02.sql',
+            sql: [
+              '-- 实验A：故意报错',
+              'SELECT dept, AVG(salary) AS avg_sal FROM employees WHERE AVG(salary) > 10500 GROUP BY dept;',
+              '-- 实验B：正确写法',
+              'SELECT dept, AVG(salary) AS avg_sal FROM employees GROUP BY dept HAVING AVG(salary) > 10500;',
+              '-- 实验C：HAVING 用列别名 + 排序',
+              'SELECT dept, COUNT(*) AS cnt, AVG(salary) AS avg_sal FROM employees GROUP BY dept HAVING cnt >= 3 ORDER BY avg_sal DESC;'
+            ],
+            expected: 'A 报 ERROR 1111 (HY000): Invalid use of group function；B 只返回 RD 一行 18333.3333；C 返回 RD(3, 18333.3333) 和 SALES(3, 10166.6667) 两行',
+            errors: 'B 若返回 3 行，多半是把 > 写成了 >=（MKT 均值正好等于 10500，是边界值陷阱）',
+            evidence: '学生贴出了 A / B / C 三条的完整输出，与预期完全一致'
+          },
+          findings: [
+            'WHERE 执行时还没分组，"每个部门的平均工资"这个概念根本不存在 → 报 1111',
+            'HAVING 能用别名是 MySQL 额外开的口子，别养成习惯（换库可能报错）',
+            '能在 WHERE 干掉的行不要留给 HAVING：WHERE 先执行，被它筛掉的行不参与分组和聚合，机器做功更少',
+            '数据：employees 8 行，dept 有 RD / SALES / MKT 三个值'
+          ],
+          pitfalls: [
+            '边界值写错（> 与 >=）是对比实验里最常见的假结果来源'
+          ],
+          quiz: [
+            {
+              q: '查出"平均工资 > 10500 且人数 >= 2 的部门"怎么写？',
+              mine: 'select dept, count(*) as cnt, avg(salary) as avg_sal from employees group by dept having avg_sal > 10500 and cnt > 2;',
+              note: '✅ 正确，而且顺带用上了 HAVING 的列别名。实测返回 RD 一行（3 | 18333.3333）。你写的是 cnt > 2，等价于 cnt >= 3，在这个数据上结果一样。'
+            },
+            {
+              q: 'WHERE 里能不能写 COUNT(*) > 2？为什么？',
+              mine: 'where是聚合前的条件，这时候还没有分组，count(*)不存在，所以会报错的。',
+              note: '✅ 完全正确，这句就是标准答案。'
+            }
+          ]
+        },
+        {
+          id: 'A3',
+          title: 'NULL 三值逻辑',
+          status: 'done',
+          weight: '高',
+          estimate: '60 min',
+          plan: 'NULL 不是 0 也不是空字符串，而是"未知"。搞清它带来的三个后果。',
+          concepts: [
+            'NULL = 未知，所以 SQL 是 TRUE / FALSE / UNKNOWN 三值逻辑，WHERE 只保留 TRUE 的行',
+            '= NULL 永远不成立，要用 IS NULL；<> 也过滤不掉 NULL 行',
+            '聚合函数跳过 NULL：COUNT(字段) 数的是非 NULL 个数，AVG 的分母也是非 NULL 个数'
+          ],
+          experiment: {
+            file: 'lab03.sql',
+            sql: [
+              '-- 准备：给 employees 加一列 bonus，故意留 4 行为 NULL',
+              'ALTER TABLE employees ADD COLUMN bonus INT NULL;',
+              "UPDATE employees SET bonus = 2000 WHERE dept = 'RD';",
+              "UPDATE employees SET bonus = 1000 WHERE name = 'Carol';",
+              '-- 实验1：COUNT(*) 与 COUNT(列)',
+              'SELECT COUNT(*) AS cnt_all, COUNT(bonus) AS cnt_bonus FROM employees;',
+              '-- 实验2：= NULL 查不到东西',
+              'SELECT id, name FROM employees WHERE bonus = NULL;',
+              'SELECT id, name FROM employees WHERE bonus IS NULL;',
+              '-- 实验3：NULL 参与算术',
+              'SELECT name, salary, bonus, salary + bonus AS total FROM employees ORDER BY id;',
+              '-- 实验4（最反直觉的一个）：<> 也过滤不掉 NULL',
+              'SELECT id, name, bonus FROM employees WHERE bonus <> 2000;',
+              '-- 实验5：SUM / AVG 怎么对待 NULL',
+              'SELECT SUM(bonus) AS sum_bonus, AVG(bonus) AS avg_bonus FROM employees;'
+            ],
+            expected: '实验1 → 8 和 4；实验2 → 第一条 Empty set，第二条 4 行；实验3 → 4 行 total 显示 NULL；实验4 → 只有 Carol 一行；实验5 → 7000 和 1750.0000',
+            errors: '实验5 若 avg_bonus 是 875，说明分母被当成 8（某些报表工具会做 COALESCE 填充，MySQL 原生不会）',
+            evidence: '学生贴出了实验 3 / 4 / 5 的完整输出，与预期完全一致'
+          },
+          findings: [
+            '这 4 行 bonus 为 NULL：Dave / Frank / Grace / Henry',
+            'NULL 参与算术，结果还是 NULL（salary + NULL = NULL）',
+            'bonus <> 2000 只返回 Carol —— 4 个 NULL 行因为算出 UNKNOWN 被丢掉了，这是生产环境经典事故',
+            'COUNT(*) 和 COUNT(1) 数行；COUNT(字段) 数非 NULL 值，两个问题不一样',
+            'AVG(bonus) = 7000 / 4 = 1750，分母是 4 不是 8'
+          ],
+          pitfalls: [
+            "学生把 NULL 和 空字符串、0 混为一谈，写出 bonus = '' 和 bonus = '0'",
+            "bonus 是 INT 列，写 bonus = '' 会触发隐式类型转换（把空串当成 0）→ 这正是 L3 要学的\"索引失效场景③\""
+          ],
+          quiz: [
+            {
+              q: '查出"名字叫 Dave，或者没有奖金"的员工',
+              mine: "select * from employees where name = 'Dave' or bonus is null or bouns = '' or bouns = '0';",
+              note: "核心逻辑 ✅（name = 'Dave' or bonus is null），但有两个问题：① bouns 拼错两次，会报 ERROR 1054 Unknown column 'bouns' in 'where clause'；② 多加的 bonus = '' 和 bonus = '0' 暴露了一个概念混淆 —— NULL（未知）、''（长度 0 的字符串）、0（数字零）是三样不同的东西，不能互相替代。而且 bonus 是 INT 列，写 bonus = '' 会触发隐式类型转换（把空串当 0），这正是 L3 要学的\"索引失效场景③\"。正确答案只要 name = 'Dave' OR bonus IS NULL，返回 4 行（Dave / Frank / Grace / Henry）。"
+            },
+            {
+              q: 'AVG(bonus) 的分母是 8 还是 4？为什么？',
+              mine: '分母是4。null被跳过了。',
+              note: '✅ 正确。SUM 只加非 NULL 的（2000×3 + 1000 = 7000），AVG 的分母也是非 NULL 的个数（4），所以是 1750。'
+            }
+          ]
+        },
+        {
+          id: 'A4',
+          title: 'COUNT 家族与 NOT IN 的空结果陷阱',
+          status: 'doing',
+          weight: '高',
+          estimate: '45 min',
+          plan: '看清 COUNT(*) / COUNT(1) / COUNT(字段) 的语义差别，以及 NOT IN 一碰 NULL 就整个失效。',
+          concepts: [
+            'COUNT(*) 和 COUNT(1) 语义完全相同（数行）；COUNT(字段) 数的是非 NULL 值',
+            'NOT IN 的展开式含 <> NULL，结果是 UNKNOWN，AND 之后整个条件永远不为 TRUE → 一行都返回不了',
+            'InnoDB 不存行数，所以 COUNT 必须扫数据（L5 展开，Week 2 用 100 万行验证）'
+          ],
+          experiment: {
+            file: 'lab04.sql',
+            sql: [
+              '-- 实验1：COUNT 家族一起上',
+              'SELECT COUNT(*) AS cnt_star, COUNT(1) AS cnt_1, COUNT(id) AS cnt_id, COUNT(bonus) AS cnt_bonus FROM employees;',
+              '-- 实验2A：salary 无 NULL，列表里也没 NULL',
+              'SELECT name, salary FROM employees WHERE salary NOT IN (15000, 18000);',
+              '-- 实验2B：与 2A 只差列表末尾一个 NULL',
+              'SELECT name, salary FROM employees WHERE salary NOT IN (15000, 18000, NULL);',
+              '-- 实验2C：列表没 NULL，但列里有 NULL',
+              'SELECT name, bonus FROM employees WHERE bonus NOT IN (1000, 2000);',
+              '-- 实验3：正确写法',
+              'SELECT name, bonus FROM employees WHERE bonus IS NULL OR bonus NOT IN (1000, 2000);'
+            ],
+            expected: '实验1 → 8 / 8 / 8 / 4；实验2A → 6 行；实验2B → Empty set（0 行）；实验2C → Empty set（0 行）；实验3 → 4 行',
+            errors: '实验2B 若返回 6 行，说明不是标准 SQL 语义；COUNT(bonus) 若也是 8，检查 bonus 列是否真的存在',
+            evidence: '尚未执行 / 未贴出'
+          },
+          findings: [
+            '待补：等学生跑完 lab04 后填入'
+          ],
+          pitfalls: [
+            '待补'
+          ],
+          quiz: [
+            {
+              q: '实验 3 里如果省略 bonus IS NULL，会漏掉哪些人？',
+              mine: null,
+              note: '未回答。会漏掉全部 4 个 NULL 行（Dave / Frank / Grace / Henry），因为 NOT IN 对 NULL 算出 UNKNOWN，而 WHERE 只保留 TRUE 的行。'
+            },
+            {
+              q: '不用 IS NULL，还能怎么查出那 4 个没有奖金的人？',
+              mine: null,
+              note: '未回答。方向提示：NOT IN 的反面是 IN，再整体取反；或者用 COALESCE / IFNULL 把 NULL 换成一个哨兵值再比较。等 A4 收尾时一起动手验证。'
+            }
+          ]
+        }
+      ]
+    },
+
+    /* ================= 模块 B：聚合与集合运算 ================= */
+    {
+      id: 'B',
+      title: '聚合与集合运算',
+      desc: '分组的进阶玩法，以及多个结果集怎么合并。',
+      lessons: [
+        {
+          id: 'B1',
+          title: 'UNION vs UNION ALL 与集合运算',
+          status: 'todo',
+          weight: '中',
+          estimate: '45 min',
+          plan: '搞清 UNION 为什么要去重、去重的代价是什么；顺带看 INTERSECT / EXCEPT（MySQL 8.0.31+）。',
+          concepts: [
+            'UNION 会去重（隐含排序 / 临时表），UNION ALL 直接拼接',
+            'UNION 去重的实现代价：需要临时表或排序，数据量大时很慢',
+            '列数必须一致、类型会做隐式转换'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：同一份数据分别用 UNION 和 UNION ALL，对比行数与耗时' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'B2',
+          title: 'GROUP BY 进阶与分组取每组前 N 名',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '这是面试手撕题最高频的一类，要能写出多种解法并说清各自代价。',
+          concepts: [
+            'ONLY_FULL_GROUP_BY 模式下 SELECT 的列必须在 GROUP BY 里或包在聚合函数里',
+            '分组取 TopN 的两种写法：自连接 / 窗口函数（D2 学完后回头对比）',
+            'HAVING 与 WHERE 的配合顺序'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：造一张"每个部门多名员工"的表，取每个部门薪资前 2 名' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 C：多表查询 ================= */
+    {
+      id: 'C',
+      title: '多表查询',
+      desc: '面试手撕题的半壁江山。会建第二张表，专门复现 NOT IN / EXISTS 的经典陷阱。',
+      lessons: [
+        {
+          id: 'C1',
+          title: 'JOIN 基础：INNER / LEFT / RIGHT',
+          status: 'todo',
+          weight: '中',
+          estimate: '45 min',
+          plan: '搞清 JOIN 的驱动关系，以及笛卡尔积是怎么炸出来的。',
+          concepts: [
+            'INNER JOIN 只保留两边都匹配的行；LEFT JOIN 保留左表全部',
+            '忘记写 ON 条件 = 笛卡尔积（行数 = 左表行数 × 右表行数）',
+            'ON 和 WHERE 在 LEFT JOIN 里的效果不同（这是个高频陷阱）'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：建 departments 表，故意留一个没有员工的部门 + 一个没有部门的员工' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C2',
+          title: '自连接',
+          status: 'todo',
+          weight: '中',
+          estimate: '45 min',
+          plan: '同一张表当两张用，为"比较同一张表里两行"的题型打基础。',
+          concepts: [
+            '自连接必须起别名，否则 MySQL 不知道说的是哪一张',
+            '典型题型：查比某人入职晚的员工、上升的温度（LeetCode 197）'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：在 employees 上用自连接比较两个人的薪资' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C3',
+          title: '子查询 / 相关子查询 / IN vs EXISTS',
+          status: 'todo',
+          weight: '中',
+          estimate: '60 min',
+          plan: '分清非相关子查询（先算一次）和相关子查询（每行都要算一次）。',
+          concepts: [
+            '非相关子查询只执行一次；相关子查询对外层每一行都执行一次',
+            'IN 适合子查询结果小的场景，EXISTS 适合外层小的场景',
+            'MySQL 优化器有时会把 IN 改写成半连接（semi-join）'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：同一需求的 IN / EXISTS 两种写法对比' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C4',
+          title: '"不存在的行"三种写法对比',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '把 A4 的 NOT IN 陷阱升级成完整对照实验：NOT IN / NOT EXISTS / LEFT JOIN ... IS NULL。',
+          concepts: [
+            'NOT IN 遇到 NULL 会返回空表（A4 已埋点）',
+            'NOT EXISTS 不受 NULL 影响',
+            'LEFT JOIN ... WHERE 右表主键 IS NULL 是第三种写法',
+            '三种写法在面试题"从没下过单的客户"里的行为差异'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：用 orders 表（含 customer_id 为 NULL 的行）分别跑三种写法' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 D：排序、分页、窗口函数 ================= */
+    {
+      id: 'D',
+      title: '排序、分页、窗口函数',
+      desc: '窗口函数是 MySQL 8.0 的分水岭，也是手撕题里最省事的解法。',
+      lessons: [
+        {
+          id: 'D1',
+          title: 'ORDER BY、LIMIT 与分页',
+          status: 'todo',
+          weight: '中',
+          estimate: '45 min',
+          plan: '掌握排序和多方言分页写法，为 L6 的深分页优化埋点。',
+          concepts: [
+            'ORDER BY 可以用 SELECT 别名（因为排在 SELECT 之后）',
+            'LIMIT offset, size 的坑：offset 越大越慢',
+            '排序字段有 NULL 时，MySQL 把 NULL 排在最小'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：观察 NULL 在升序 / 降序中的位置' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D2',
+          title: '窗口函数入门：ROW_NUMBER / RANK / DENSE_RANK',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '三个排名函数的差别要能一眼说出，并能用它解分组取 TopN。',
+          concepts: [
+            'ROW_NUMBER 不重复不跳号；RANK 并列跳号；DENSE_RANK 并列不跳号',
+            'OVER (PARTITION BY ... ORDER BY ...) 的含义',
+            '窗口函数不能出现在 WHERE 里（执行顺序：在 SELECT 阶段才算）'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：同一份带并列排名的数据，三个函数一起输出对比' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D3',
+          title: '窗口函数进阶：SUM OVER 与连续 N 天',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '掌握累计 / 滑动窗口，以及"连续 N 天登录"这类经典题的套路。',
+          concepts: [
+            'SUM() OVER (ORDER BY ...) 是累计求和；加 ROWS BETWEEN 是滑动窗口',
+            '连续 N 天套路：ROW_NUMBER 做差后分组（日期减行号是常数）',
+            'LAG / LEAD 取前后行'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：造一张登录记录表，找出连续登录 3 天的用户' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 E：写操作与表结构变更 ================= */
+    {
+      id: 'E',
+      title: '写操作与表结构变更',
+      desc: '写操作出事故的代价比查高得多，这一块重点在"为什么危险"。',
+      lessons: [
+        {
+          id: 'E1',
+          title: 'INSERT / UPDATE / DELETE 的坑',
+          status: 'todo',
+          weight: '中',
+          estimate: '45 min',
+          plan: '亲身经历一次"UPDATE 忘写 WHERE"，理解为什么它比想象中危险。',
+          concepts: [
+            'UPDATE / DELETE 忘写 WHERE 会改全表（用事务或备份救）',
+            '批量 INSERT 的写法与性能差异',
+            'safe update mode（sql_safe_updates）'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：在独立的小表上故意验证影响行数 Rows matched / Changed' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E2',
+          title: 'TRUNCATE vs DELETE vs DROP + 行转列/列转行',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '搞清三者的行为差异（含自增计数器、能否回滚），并掌握行转列的写法。',
+          concepts: [
+            'DELETE 逐行删、可回滚、带 WHERE；TRUNCATE 直接重建、不可回滚、重置自增；DROP 连表结构一起删',
+            'TRUNCATE 的"表结构还在但自增从 1 开始"要动手验证',
+            '行转列用 CASE WHEN + 聚合；列转行用 UNION ALL'
+          ],
+          experiment: { file: null, sql: [], expected: '待设计：同一张表分别 DELETE 和 TRUNCATE 后观察 AUTO_INCREMENT 值' },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+window.__TOPICS__.push({ id: 'Database-Learn', name: 'MySQL', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
+
+/* ===================== 专题：Java 基础 [Java-Basic-Learn] ===================== */
+window.ROADMAP_DATA = { levels: [] };
+/* =====================================================================
+ * plan.js —— 学习路线总览
+ * ---------------------------------------------------------------------
+ * 【给后续 AI 的交接说明，请先读完这一段再动手】
+ *
+ * 1. 本看板是"数据 / 呈现"分离的：
+ *      - roadmap/data/*.js  → 只放数据（本文件 + L0.js ~ L9.js）
+ *      - roadmap/index.html / style.css / app.js → 只负责呈现，改数据不用动它们
+ *
+ * 2. 新会话开始时：
+ *      a. 先读工作区根目录的 `Java基础学习指导.md`（用户自己写的教学规则，必须遵守）
+ *      b. 再读 `roadmap/README.md`（数据格式约定）
+ *      c. 再读 `roadmap/data/L0.js`，找 status 为 "doing" 的课，从那里继续
+ *
+ * 3. 每讲完一节课，请更新对应的课：
+ *      - ⚠️ 第一步：出 2~4 道「本节课检验」题（覆盖本节课 + 之前学过的），
+ *        学生**全部答对**才能标 done；答错就讲清错在哪、换一道同类型题重问。
+ *        （见 `Java基础学习指导.md` 的 5.1 规则 1 —— 答错不放行，看板 status 不许提前改 done）
+ *      - status: 'todo' → 'doing' → 'done'
+ *      - concepts: 最多 3 条（学生规则：一次最多 3 个新概念）
+ *      - cheatsheet: 这节课用到的 API / 命令
+ *      - experiment: 补 code / expected / errors / evidence
+ *      - bytecode: 有 javap 观察的补 cmd / out / what
+ *      - findings / metrics / pitfalls / quiz 按需追加
+ *
+ * 4. 开新层级时：复制一个已有的 Lx.js 结构，然后在下面 levels 里把 file 填上。
+ *    本仓库已经把 L0~L9 的**课程规划**都写好了，学到哪一层就补哪一层的内容。
+ *
+ * 5. ⚠️ 与 MySQL / Redis 版看板的差异（不要照搬那两个的经验）：
+ *      - 实验是 **Java 单文件**，用 `java labs/labNNN.java` 直接跑（JDK 11+ 原生支持），
+ *        不需要 Maven、不需要建项目
+ *      - 新增 **bytecode** 板块（javap -c -p）—— Java 基础里很多结论只能靠字节码证明
+ *      - **没有 compose.yaml / .env**，本专题不用 Docker，只要 JDK 21
+ *      - environment 用通用 items 数组
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+
+window.ROADMAP_DATA.overview = {
+  title: 'Java 基础学习看板',
+  subtitle: '目标：国内 Java 后端开发岗 · 每个结论都用代码和字节码验证过',
+  workspace: '/Users/dingyujie/数据/Code/Java-Basic-Learn',
+
+  // 学生档案（新会话的 AI 请据此调整讲解深度）
+  student: {
+    background: '对日开发初级工程师，准备跳槽国内 Java 后端岗；macOS + VS Code；练习项目 Spring Boot 4.1.1 + Java 21',
+    level: '会写 Java 基本语法（类 / 方法 / if / for），但**从没读过 JDK 源码**。' +
+           '集合只知道 ArrayList 和 HashMap 的名字；不会用泛型通配符；反射和动态代理没用过。' +
+           '已经学完 MySQL 的 L0/L1 和 Redis 的骨架，习惯了"先动手做实验"的学习方式',
+    strength: '数据结构基础扎实（红黑树、AVL 树能理解），所以 HashMap 的扩容/树化、TreeMap 的红黑树' +
+              '这些底层原理**有能力吃透**；有抽象思维能力',
+    weakness: '① 习惯"先看懂再动手"，需要被推着先写代码跑一遍；' +
+              '② 看源码容易"读一遍觉得懂了"，其实没真懂 —— 必须靠实验和检验把关；' +
+              '③ 容易拼错标识符（在 MySQL 项目里把容器名 pg-learn 敲成 pg-leran）',
+    rulesFile: 'Java基础学习指导.md'
+  },
+
+  // 层级总览。每加一个层级，在这里加一行，并在 data/ 下建对应的 js 文件。
+  levels: [
+    {
+      id: 'L0',
+      file: 'data/L0.js',
+      title: '环境与工具链（前置）',
+      status: 'doing',
+      meta: '2 节',
+      summary: '单文件源码启动 + javap 入门。不学语言，先把"看字节码"这个工具练熟 —— 后面每层都要用。'
+    },
+    {
+      id: 'L1',
+      file: 'data/L1.js',
+      title: '面向对象',
+      status: 'todo',
+      meta: '5 节',
+      summary: '三大特性的本质、重载 vs 重写、接口 vs 抽象类、equals/hashCode 契约、不可变对象。'
+    },
+    {
+      id: 'L2',
+      file: 'data/L2.js',
+      title: 'String 与常用类',
+      status: 'todo',
+      meta: '4 节',
+      summary: 'String 为什么不可变、常量池与 intern、StringBuilder 家族、包装类缓存、BigDecimal 与日期。'
+    },
+    {
+      id: 'L3',
+      file: 'data/L3.js',
+      title: '泛型',
+      status: 'todo',
+      meta: '4 节',
+      summary: '类型擦除、PECS 通配符、桥接方法、常见坑。**这一层要在集合之前学**，否则读 HashMap 源码会被卡住。'
+    },
+    {
+      id: 'L4',
+      file: 'data/L4.js',
+      title: '集合框架 ⭐ 面试最重',
+      status: 'todo',
+      meta: '7 节',
+      summary: '体系总览、ArrayList vs LinkedList、HashMap 上下两节、LinkedHashMap/TreeMap、Set 家族、Iterator 与选型。'
+    },
+    {
+      id: 'L5',
+      file: 'data/L5.js',
+      title: '异常',
+      status: 'todo',
+      meta: '3 节',
+      summary: '异常体系、受检 vs 非受检、try-with-resources、finally 与 return 的顺序。'
+    },
+    {
+      id: 'L6',
+      file: 'data/L6.js',
+      title: '反射 / 注解 / 动态代理 ⭐',
+      status: 'todo',
+      meta: '6 节',
+      summary: 'Class 对象、反射 API、反射性能、自定义注解、JDK 动态代理、CGLIB。**直接连着 Spring AOP。**'
+    },
+    {
+      id: 'L7',
+      file: 'data/L7.js',
+      title: 'IO / NIO',
+      status: 'todo',
+      meta: '4 节',
+      summary: '字节流 vs 字符流与编码、BIO/NIO/AIO、NIO 三件套、零拷贝。'
+    },
+    {
+      id: 'L8',
+      file: 'data/L8.js',
+      title: '新特性 Java 8 → 21',
+      status: 'todo',
+      meta: '3 节',
+      summary: 'Lambda 与函数式接口、Stream API、Optional / record / sealed / 模式匹配。'
+    },
+    {
+      id: 'L9',
+      file: 'data/L9.js',
+      title: '设计模式（从 JDK 里找例子）',
+      status: 'todo',
+      meta: '4 节',
+      summary: '单例 5 种写法、创建型、行为型、结构型。JDK 本身就是设计模式的展览馆，从这里学成本最低。'
+    }
+  ]
+};
+/* =====================================================================
+ * L0.js —— 环境与工具链（前置课）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 本层只做一件事：学会"看字节码"。
+ * 不学语言特性 —— 但从 L1 开始，每一层都要用 javap 来验证结论。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L0',
+  title: '环境与工具链（前置）',
+  subtitle: '先学会看字节码，再学语言',
+  status: 'doing',
+  goal: '能用一条命令跑单文件 Java，会用 javap 看字节码，知道怎么用 jshell 快速试代码。',
+
+  estimate: '2 节 · 约 1 小时',
+  interviewRefs: [
+    '面试不会直接问工具，但后面每一层都要靠它验证结论',
+    '"你看过 JDK 源码 / 字节码吗"是能拉开差距的问题 —— 这层就是回答它的底气'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['JDK', '21（用 java -version 确认）'],
+      ['跑实验文件', 'java labs/lab001.java  ← 单文件源码直接运行，不需要 javac'],
+      ['编译 + 看字节码', 'javac -d out labs/lab001.java && javap -c -p -classpath out Lab001'],
+      ['快速试代码', 'jshell'],
+      ['不需要', 'Maven、Docker、任何依赖 —— 这是所有专题里成本最低的一个'],
+      ['可选工具', 'tools/jol-core-*.jar（看对象内存布局，L4 的 HashMap 那节会用到）']
+    ],
+    note: '⚠️ 单文件源码启动要求**文件名和 public 类名一致**吗？不用 —— 单文件模式下文件名可以随意，' +
+          '但如果文件里有 public class，它必须是文件里的第一个类。这个细节学到 D1 时验证一下。'
+  },
+
+  modules: [
+    {
+      id: 'D',
+      title: '把工具练熟',
+      desc: '和 MySQL 项目里先学 docker exec、Redis 项目里先学 redis-cli 是同一个套路。',
+
+      lessons: [
+        {
+          id: 'D1',
+          title: '单文件源码启动 + jshell',
+          status: 'todo',
+          weight: '低',
+          estimate: '30 min',
+          plan: '搞清 `java Foo.java` 和传统的 `javac Foo.java && java Foo` 有什么区别（JDK 11+ 的新能力）、' +
+                '单文件模式有哪些限制、以及 jshell 适合干什么。' +
+                '目标是：以后每节课都能用一条命令跑起来，不用建工程。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D2',
+          title: 'javap 入门：第一次看见字节码',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '写一个最简单的类（一个字段 + 一个方法），用 `javap -c -p` 看它的字节码。' +
+                '认识几个最基本的指令：aload / invokevirtual / getfield / return。' +
+                '不要求看懂全部，只要能看出"Java 源码的一行，对应字节码的哪几条"。' +
+                '⚠️ 这节是本层的目的，也是后面每一层的基础工具，值得慢慢来。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L1.js —— 面向对象
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层不是"再学一遍语法"，而是搞清三件事：
+ *   ① 多态在字节码层面是怎么实现的
+ *   ② 重载和重写为什么一个在编译期决定、一个在运行期决定
+ *   ③ equals / hashCode 契约违反了会出什么 bug（能复现）
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L1',
+  title: '面向对象',
+  subtitle: '三大特性的本质，不是语法',
+  status: 'todo',
+  goal: '能说清多态在字节码层面怎么实现、equals/hashCode 契约违反了会出什么 bug，并能自己复现。',
+
+  estimate: '5 节 · 约 3 小时',
+  interviewRefs: [
+    '面向对象的三大特性是什么？（要能讲到"动态绑定"这一层）',
+    '重载和重写的区别？为什么静态方法不能被重写？',
+    '接口和抽象类的区别？什么时候用哪个？',
+    '为什么重写 equals 一定要重写 hashCode？',
+    'Java 只有值传递 —— 这句话怎么理解？',
+    '怎么设计一个不可变类？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab10x.java'],
+      ['看字节码', 'javac -d out labs/lab10x.java && javap -c -p -classpath out Lab10x'],
+      ['重点看', 'invokevirtual / invokestatic / invokeinterface 三种调用指令的区别']
+    ],
+    note: '本层会大量用 javap 观察方法调用指令 —— 那是理解"多态"最直接的证据。'
+  },
+
+  modules: [
+    {
+      id: 'O',
+      title: '面向对象的核心',
+
+      lessons: [
+        {
+          id: 'O1',
+          title: '封装 / 继承 / 多态的本质',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '封装不只是 getter/setter，而是"控制谁能改状态"。' +
+                '多态的本质是**动态绑定**：调用哪个方法不在编译期定，而在运行期根据对象的实际类型定。' +
+                '用 javap 看 `invokevirtual` 指令，再用"父类引用指向子类对象"跑一遍，亲眼看到调的是子类方法。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'O2',
+          title: '重载 vs 重写',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '重载（Overload）在**编译期**根据静态类型决定；重写（Override）在**运行期**根据实际类型决定。' +
+                '这解释了几个经典坑：为什么静态方法不能被重写（只有隐藏）、' +
+                '为什么 `null` 传参时重载会选"最具体"的那个、为什么返回值类型可以协变。' +
+                '动手：写一个同时有重载和重写的例子，用 javap + 运行结果对照。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'O3',
+          title: '接口 vs 抽象类',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '两者的选择标准不是"能不能有方法体"，而是**语义**：抽象类是"是什么"（is-a），' +
+                '接口是"能做什么"（can-do）。' +
+                '再搞清 Java 8 之后的 default / static 方法、接口可以有私有方法（Java 9）、' +
+                '以及 Java 8 引入 default 是为了什么（集合类的向后兼容）。' +
+                '看 `invokeinterface` 和 `invokevirtual` 的区别。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'O4',
+          title: 'equals / hashCode / toString 契约',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '这是本层最重要的一节，因为它是**能亲手复现的 bug**。' +
+                '① 只重写 equals 不重写 hashCode → 放进 HashSet 后 add 同一个对象两次，看会怎样；' +
+                '② 用可变字段参与 hashCode → 对象放进 HashMap 后改字段，看 `get` 还能不能查到；' +
+                '③ equals 的五个契约（自反 / 对称 / 传递 / 一致 / 非 null）。' +
+                '⚠️ 这三个实验必须自己做出来，不要只看结论。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'O5',
+          title: '不可变对象的设计',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '怎么设计一个真正不可变的类：类 final、字段 final、不提供修改方法、' +
+                '**可变字段要防御性拷贝**（这是最容易漏的一点）。' +
+                '然后用 String 作为"标准答案"逐条对照 —— 这也提前预习了 L2 的 S1。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L2.js —— String 与常用类
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层的核心不是"String 有哪些 API"，而是三个能亲手复现的坑：
+ *   ① `==` 有时 true 有时 false（常量池 + 编译期优化）
+ *   ② `Integer` 的 `==` 在 127 前后结果不同（包装类缓存）
+ *   ③ `0.1 + 0.2 != 0.3`（浮点数）
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L2',
+  title: 'String 与常用类',
+  subtitle: '三个能亲手复现的坑',
+  status: 'todo',
+  goal: '能解释字符串常量池、`==` 的陷阱、包装类缓存范围，并知道金额为什么绝不能用 double。',
+
+  estimate: '4 节 · 约 2.5 小时',
+  interviewRefs: [
+    'String 为什么设计成不可变的？',
+    'String s = "abc" 和 new String("abc") 有什么区别？',
+    '"abc" 保存在哪里？字符串常量池是什么？',
+    'intern() 是干什么的？',
+    'String、StringBuilder、StringBuffer 的区别？',
+    'Integer 的 == 在什么范围内是 true？为什么？',
+    '为什么金额不能用 double？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab20x.java'],
+      ['看编译期优化', 'javap -c -p …　← 看字符串拼接被编译成了什么'],
+      ['需要 JVM 参数时', 'java -XX:+PrintStringTableStatistics labs/lab201.java（看常量池统计）']
+    ],
+    note: '本层的每个坑都要**自己跑出反直觉的结果**，而不是记住结论。' +
+          '比如写 `System.out.println("abc" == "abc");` 看它输出什么，再想为什么。'
+  },
+
+  modules: [
+    {
+      id: 'S',
+      title: 'String 与基础类库',
+
+      lessons: [
+        {
+          id: 'S1',
+          title: 'String 为什么不可变 + 字符串常量池',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '不可变的三个理由：线程安全、可以安全地做常量池共享、hashCode 可以缓存。' +
+                '然后搞清常量池：字符串字面量什么时候进池、`new String()` 会不会进池、`intern()` 干什么。' +
+                '动手：写一组 `==` 对比（字面量 vs new vs 拼接 vs final 变量），先猜结果再跑，看错了几个。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'S2',
+          title: 'StringBuilder 与 StringBuffer',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '搞清三者的差别（可变性、线程安全、性能）和各自的适用场景。' +
+                '然后用 javap 看 `"a" + b + "c"` 在循环里和循环外分别被编译成什么 —— ' +
+                '为什么"循环里拼接要用 StringBuilder"这个说法在 JDK 9 之后**需要修正**（javac 会自动用 invokedynamic）。' +
+                '⚠️ 这节是"网上结论可能是过时的"的典型例子，要自己验证。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'S3',
+          title: '包装类与缓存',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '自动装箱 / 拆箱在字节码里是什么（valueOf / xxxValue）。' +
+                '为什么 `Integer.valueOf(127) == Integer.valueOf(127)` 是 true，' +
+                '而 `128` 是 false（IntegerCache 的范围）。' +
+                '以及由此引发的坑：`Integer` 为 null 时拆箱会 NPE、`Long` 和 `Integer` 比较的陷阱。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'S4',
+          title: 'BigDecimal 与日期时间',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '先用 `0.1 + 0.2` 跑出 `0.30000000000000004`，搞清为什么（IEEE 754 二进制浮点）。' +
+                '结论：**金额必须用 BigDecimal**，并且要用 `new BigDecimal(String)` 而不是 `new BigDecimal(double)`。' +
+                '再对比 `LocalDateTime` 和老的 `Date` / `Calendar`：为什么后者被淘汰（可变、线程不安全、月份从 0 开始）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L3.js —— 泛型
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层的唯一核心：**类型擦除**。
+ * 理解了擦除，才能解释为什么 List<String> 和 List<Integer> 是同一个类、
+ * 为什么不能 new T[]、为什么会有桥接方法。
+ *
+ * ⚠️ 必须在 L4（集合）之前学 —— HashMap 源码里全是泛型和通配符。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L3',
+  title: '泛型',
+  subtitle: '类型擦除理解透了，后面的都顺',
+  status: 'todo',
+  goal: '能说清类型擦除导致的所有后果，会用 PECS 原则决定用 `? extends` 还是 `? super`。',
+
+  estimate: '4 节 · 约 2.5 小时',
+  interviewRefs: [
+    '什么是类型擦除？擦除之后泛型信息还在吗？',
+    'List<String> 和 List<Integer> 是同一个类吗？',
+    '? extends 和 ? super 的区别？（PECS 原则）',
+    '为什么不能 new T[]？为什么静态成员不能用类的泛型？',
+    '什么是桥接方法？（加分项）'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab30x.java'],
+      ['看擦除', 'javap -c -p …　← 看泛型在字节码里变成了什么（大概率全是 Object）'],
+      ['看桥接方法', 'javap -c -p … | grep -A2 bridge'],
+      ['需要反射时', '用 getGenericSuperclass() 看泛型信息还在哪里']
+    ],
+    note: '⚠️ 本层最适合"先猜再验证"：每写一段代码，先猜字节码里长什么样，再 javap 对照。'
+  },
+
+  modules: [
+    {
+      id: 'G',
+      title: '泛型与类型擦除',
+
+      lessons: [
+        {
+          id: 'G1',
+          title: '类型擦除：泛型只存在于编译期',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '核心结论：泛型信息在编译后被擦除，`List<String>` 和 `List<Integer>` 运行时是同一个 `List`。' +
+                '动手验证：① 用 javap 看泛型字段变成了 `Object`；' +
+                '② 用 `list.getClass() == list2.getClass()` 看是不是 true；' +
+                '③ 用反射往 `List<String>` 里塞一个 Integer，看会不会报错（这就是"堆污染"）。' +
+                '最后说清擦除的动机（向后兼容：泛型是 Java 5 才加的）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'G2',
+          title: '通配符与 PECS 原则',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '搞清 `List<Object>` 和 `List<?>` 的区别、为什么 `List<String>` 不能赋给 `List<Object>`。' +
+                '然后记 PECS：**Producer Extends, Consumer Super**' +
+                '（只读取用 `? extends`，只写入用 `? super`）。' +
+                '用 `Collections.copy(List<? super T>, List<? extends T>)` 这个 JDK 自带的例子来印证。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'G3',
+          title: '泛型方法、类型边界与桥接方法',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '泛型方法的语法（`<T>` 写在返回值前）、类型边界（`T extends Comparable<T>`）。' +
+                '重点是**桥接方法**：写一个泛型父类和具体子类，重写那个方法，' +
+                '用 `javap -c -p` 看编译器悄悄生成了一个 bridge 方法。' +
+                '这解释了"为什么重写泛型方法时 @Override 有时很微妙"。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'G4',
+          title: '泛型的坑',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '把擦除引发的所有坑集中过一遍：' +
+                '① 不能 `new T[]` / `new List<String>[10]`（为什么）；' +
+                '② 静态成员不能用类的泛型参数；' +
+                '③ 不能 `instanceof List<String>`；' +
+                '④ 泛型异常类不能 `catch T`；' +
+                '⑤ 堆污染：什么时候会发生、`@SafeVarargs` 是干什么的。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L4.js —— 集合框架 ⭐ 面试最重
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层是 Java 基础里面试问得最多的，也是唯一需要"读源码"的一层。
+ * 学习方式：
+ *   ① 先跑实验看现象（比如 add 同一个对象两次）
+ *   ② 再读源码找原因（JDK 源码在 IDE 里 Ctrl+左键就能跳）
+ *   ③ 再自己复现反例（比如多线程 put 导致数据丢失）
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L4',
+  title: '集合框架 ⭐ 面试最重',
+  subtitle: '面试问得最多的一层',
+  status: 'todo',
+  goal: '能画图讲清 HashMap 的 put 全流程和扩容机制，能解释 ConcurrentModificationException 怎么来的，并给出集合选型的理由。',
+
+  estimate: '7 节 · 约 4.5 小时',
+  interviewRefs: [
+    'ArrayList 和 LinkedList 的区别？ArrayList 扩容怎么扩？',
+    'HashMap 的底层结构？put 的流程？',
+    '为什么 HashMap 的容量必须是 2 的幂？',
+    'HashMap 什么时候树化？为什么阈值是 8 和 6？',
+    'HashMap 为什么线程不安全？JDK 7 和 JDK 8 的问题一样吗？',
+    'HashMap 的 hash 方法为什么要异或右移 16 位？',
+    'LinkedHashMap 怎么做 LRU？',
+    'HashMap / Hashtable / ConcurrentHashMap 的区别？',
+    'ConcurrentModificationException 是怎么产生的？',
+    'fail-fast 和 fail-safe 的区别？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab40x.java'],
+      ['看内部结构', '反射读 table 数组的长度和内容（写个小工具方法）'],
+      ['看对象占用', 'tools/jol-core.jar（可选）—— 量 ArrayList / HashMap 的实际内存占用'],
+      ['读源码', 'VS Code 里 Ctrl+左键跳到 JDK 源码（HashMap.java）'],
+      ['需要多线程实验', 'lab404 会用多个线程并发 put，观察数据丢失']
+    ],
+    note: '⚠️ 本层的 HashMap 是**唯一建议真读源码**的地方。' +
+          '但不要一上来就通读 —— 先带着一个具体问题去读（比如"扩容时链表怎么处理"），效率高得多。'
+  },
+
+  modules: [
+    {
+      id: 'C',
+      title: '集合框架',
+
+      lessons: [
+        {
+          id: 'C1',
+          title: '体系总览：两条线',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '画出集合的全景图：`Collection`（List / Set / Queue）一条线，`Map` 一条线。' +
+                '搞清 `Iterable` 的位置（为什么能 for-each）、' +
+                '`AbstractCollection` 这类抽象类的作用（模板方法模式，为 L9 埋伏笔）。' +
+                '**这节不背 API，只要能把图画出来。**',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C2',
+          title: 'ArrayList vs LinkedList',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: 'ArrayList：数组实现、**扩容是 1.5 倍**（`oldCap + (oldCap >> 1)`）、随机访问 O(1)、' +
+                '中间插入 O(n)。LinkedList：双向链表、随机访问 O(n)、头尾操作 O(1)。' +
+                '动手：① 反射读出 ArrayList 的扩容过程，打印每次的容量；' +
+                '② 实测"LinkedList 在头部插入比 ArrayList 快吗"——' +
+                '大概率会发现**小数据量下 ArrayList 反而更快**（因为 LinkedList 每个节点都要 new 对象）。' +
+                '结论：实战中 99% 的情况都该用 ArrayList。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C3',
+          title: 'HashMap（上）：put 流程与扩容',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '本层最重要的一节，要能**画图讲 5 分钟**。' +
+                '① 数据结构：数组 + 链表 + 红黑树；' +
+                '② `hash()` 为什么要 `h ^ (h >>> 16)`；' +
+                '③ 为什么容量是 2 的幂（`(n-1) & hash` 等价于取模，但更快）；' +
+                '④ put 的完整流程（算 hash → 定位桶 → 空则放 → 否则比 key → 链表/树）；' +
+                '⑤ 扩容：负载因子 0.75、新容量翻倍、rehash 时为什么 JDK 8 只需判断 `(e.hash & oldCap) == 0`。' +
+                '⚠️ 内容很多，请分两批讲，中间插一次实验。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C4',
+          title: 'HashMap（下）：树化与线程不安全',
+          status: 'todo',
+          weight: '高',
+          estimate: '50 min',
+          plan: '① 树化条件：链表长度 ≥ 8 **且** 数组长度 ≥ 64（否则先扩容）；' +
+                '② 为什么树化阈值是 8、退化是 6（泊松分布 + 留缓冲避免频繁转换）；' +
+                '③ 为什么重写 hashCode 很重要（hash 冲突多了会退化成链表）；' +
+                '④ **线程不安全**：JDK 7 头插法导致成环死循环、JDK 8 尾插法不致命但会丢数据。' +
+                '动手：写多线程并发 put，用代码统计"插入 10000 个，最后 size 是多少"—— ' +
+                '亲手看到丢数据比看结论有效十倍。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C5',
+          title: 'LinkedHashMap 与 TreeMap',
+          status: 'todo',
+          weight: '中',
+          estimate: '40 min',
+          plan: 'LinkedHashMap 在 HashMap 基础上加了双向链表维护顺序（插入序 / 访问序）。' +
+                '重点是**访问序 + 重写 removeEldestEntry = 一个现成的 LRU 缓存**，动手写一个 10 行版本的 LRU。' +
+                '（这也直接呼应 Redis 的 L4 内存淘汰。）' +
+                'TreeMap：红黑树实现、按 key 排序、`Comparable` vs `Comparator`、' +
+                '为什么它的 `get` 是 O(log n) —— 正好用上你学过的红黑树。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C6',
+          title: 'Set 家族',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '一个核心结论：**HashSet 内部就是一个 HashMap**（value 统一放一个 `PRESENT` 常量对象）。' +
+                '动手：读 HashSet 的源码印证这点。' +
+                '再对比 TreeSet（= TreeMap）和 LinkedHashSet（= LinkedHashMap），' +
+                '以及 `Set` 去重的原理（依赖 `hashCode` + `equals`，**这里会再次验证 L1 的 O4**）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C7',
+          title: 'Iterator、fail-fast 与集合选型',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '① for-each 底层就是 `Iterator`（用 javap 验证）；' +
+                '② `ConcurrentModificationException` 怎么来的：`modCount` 和 `expectedModCount` 对比；' +
+                '③ 为什么用 `Iterator.remove()` 就不报错；' +
+                '④ fail-fast（ArrayList/HashMap）vs fail-safe（CopyOnWriteArrayList/ConcurrentHashMap）的区别；' +
+                '⑤ 收尾：给一张**选型决策表**（什么场景用哪个集合、理由是什么）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L5.js —— 异常
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层最值得动手的是两件事：
+ *   ① finally 里 return 会覆盖掉 try 里的 return（经典题，能跑出来）
+ *   ② try-with-resources 在字节码里被展开成了什么（这是"语法糖"最直观的例子）
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L5',
+  title: '异常',
+  subtitle: 'finally 和 return 的经典题',
+  status: 'todo',
+  goal: '能说清受检/非受检的设计意图，能预测 finally 与 return 的执行顺序，并知道哪些异常处理是反模式。',
+
+  estimate: '3 节 · 约 1.5 小时',
+  interviewRefs: [
+    '受检异常和非受检异常的区别？',
+    'finally 里 return 会发生什么？',
+    'try-with-resources 的原理？',
+    'Error 和 Exception 的区别？OOM 能不能 catch？',
+    '为什么不要在 finally 里抛异常？',
+    '异常处理有哪些反模式？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab50x.java'],
+      ['看语法糖', 'javac -d out … && javap -c -p …　← try-with-resources 会被展开成 try/finally'],
+      ['需要时', 'java -XX:+HeapDumpOnOutOfMemoryError labs/lab501.java（L5 暂时用不到）']
+    ],
+    note: '本层**不要死记 finally 和 return 的顺序** —— 写出来跑一遍就知道了。'
+  },
+
+  modules: [
+    {
+      id: 'E',
+      title: '异常',
+
+      lessons: [
+        {
+          id: 'E1',
+          title: '异常体系与受检 / 非受检',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '画出体系图：`Throwable` → `Error` / `Exception`，`Exception` → `RuntimeException` / 其他。' +
+                '搞清三件事：' +
+                '① `Error`（OOM、StackOverflow）为什么不该 catch；' +
+                '② 受检异常的设计意图（"调用者必须处理的可恢复情况"）和它的争议；' +
+                '③ 为什么 Spring / 各种框架偏爱非受检异常。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E2',
+          title: 'try-catch-finally 与语法糖',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '① 经典题：`try { return 1; } finally { return 2; }` 返回什么？' +
+                '把四种组合（try 里 return / finally 里 return / finally 改字段 / finally 抛异常）全部跑一遍；' +
+                '② 用 javap 看**语法糖被展开成了什么** —— finally 的代码块被复制到了每条退出路径上；' +
+                '③ try-with-resources 编译后是什么（为什么它能"自动关闭"、支持的资源必须实现什么接口）；' +
+                '④ 被抑制的异常（`getSuppressed()`）—— 这个很少有人知道，是加分项。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E3',
+          title: '异常处理实践',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '集中看反模式和正确做法：' +
+                '① 不要吞异常（`catch (Exception e) {}`）；' +
+                '② 不要用异常做流程控制；' +
+                '③ 异常要包装并保留原因（`new XxxException("msg", e)`，否则丢失堆栈）；' +
+                '④ 不要在大循环里构造异常（构造异常会填充堆栈，很贵）；' +
+                '⑤ 自定义异常该继承谁。' +
+                '**这一节的内容和你的项目实践直接相关**（全局异常处理器的写法）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L6.js —— 反射 / 注解 / 动态代理 ⭐
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层把 Java 基础和 Spring 直接连起来了：
+ *   @Transactional 失效 → AOP → 动态代理 → 反射 → Class 对象
+ * 学完这层，再回头学 Spring 原理会轻松很多。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L6',
+  title: '反射 / 注解 / 动态代理 ⭐',
+  subtitle: 'Spring 的地基',
+  status: 'todo',
+  goal: '能手写一个 JDK 动态代理，能说清 JDK 代理和 CGLIB 的区别与各自限制，能自己写一个注解并用反射读取。',
+
+  estimate: '6 节 · 约 4 小时',
+  interviewRefs: [
+    '反射是什么？有什么用？为什么慢？',
+    '获取 Class 对象有哪几种方式？',
+    'setAccessible(true) 是干什么的？',
+    '注解是怎么生效的？（元注解、保留策略）',
+    'JDK 动态代理和 CGLIB 动态代理的区别？',
+    'Spring AOP 什么时候用 JDK 代理，什么时候用 CGLIB？',
+    '为什么 @Transactional 加在同类方法调用上会失效？（这一题直接连到这层）'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab60x.java'],
+      ['看生成的代理类', 'java -Djdk.proxy.ProxyGenerator.saveGeneratedFiles=true labs/lab605.java'],
+      ['看字节码', 'javap -c -p …　← 看 invokedynamic / 桥接方法'],
+      ['可选依赖', 'CGLIB 已包含在 spring-core 里；如果想单独练，可下载 cglib-nodep.jar'],
+      ['⚠️ 模块化限制', 'JDK 17+ 对 setAccessible 有限制（模块系统）；实验时如果碰到 InaccessibleObjectException，' +
+                        '用 `--add-opens java.base/java.lang=ALL-UNNAMED` 打开']
+    ],
+    note: '⚠️ 这一层是**整个 Java 基础里离工作最近的一层**：' +
+          '你以后在 Spring 项目里遇到的"AOP 不生效""注解没反应"的绝大多数问题，根源都在这里。'
+  },
+
+  modules: [
+    {
+      id: 'R',
+      title: '运行时元编程',
+
+      lessons: [
+        {
+          id: 'R1',
+          title: 'Class 对象：一切反射的起点',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '搞清 `Class` 是什么（每个类被加载后，JVM 会为它创建一个 Class 对象），' +
+                '三种获取方式（`Xxx.class` / `obj.getClass()` / `Class.forName()`）的区别（' +
+                '尤其是"什么时候会触发类初始化"）。' +
+                '动手：用三种方式拿同一个类的 Class，验证它们 `==`。' +
+                '（这节会给后面的 JVM 专题"类加载"埋伏笔。）',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R2',
+          title: '反射 API：构造 / 字段 / 方法',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '把反射能做的四件事各练一遍：创建实例、读改字段、调方法、读注解。' +
+                '重点是搞清 `getDeclaredXxx`（本类声明的）和 `getXxx`（含继承的）的区别、' +
+                '以及 `setAccessible(true)` 到底在干什么（绕过访问检查）。' +
+                '动手：写一个工具方法，用反射打印任意对象的所有字段名和值（**这就是调试神器**，以后会一直用）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R3',
+          title: '反射为什么慢',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '先用代码实测：同样调用一个方法 1000 万次，直接调用 vs 反射调用，差多少倍。' +
+                '然后找原因：每次都要做访问检查、参数装箱、无法内联（JIT 优化不了）。' +
+                '再讲优化手段：缓存 `Method`/`Field` 对象、`setAccessible(true)` 关掉访问检查、' +
+                '以及 JDK 的 `MethodHandle` / `LambdaMetafactory`（Spring 6 和 MyBatis 都用这个思路）。' +
+                '⚠️ 要有实测数字，不要只说"反射慢"。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R4',
+          title: '自定义注解',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '先搞清一个反直觉的事实：**注解本身什么也不做**，它只是一份"贴在代码上的元数据"。' +
+                '真正让它生效的是"读注解的代码"（反射、注解处理器、字节码增强）。' +
+                '然后学四个元注解（`@Target` / `@Retention` / `@Documented` / `@Inherited`）、' +
+                '三种保留策略（SOURCE / CLASS / RUNTIME —— 只有 RUNTIME 能被反射读到）。' +
+                '动手：自己写一个 `@LogTime` 注解 + 用反射读取它（**这就是自己实现 AOP 的第一步**）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R5',
+          title: 'JDK 动态代理',
+          status: 'todo',
+          weight: '高',
+          estimate: '50 min',
+          plan: '本层最核心的一节。' +
+                '① 为什么需要代理（在不改原代码的前提下加功能）；' +
+                '② `Proxy.newProxyInstance` 的三个参数各是什么；' +
+                '③ `InvocationHandler.invoke` 的三个参数；' +
+                '④ **动手手写一个代理，在方法调用前后打印日志**；' +
+                '⑤ 用 `-Djdk.proxy.ProxyGenerator.saveGeneratedFiles=true` 把生成的代理类 dump 出来，' +
+                '用 javap 看它长什么样（这是最有冲击力的一步）。' +
+                '⚠️ 必须自己敲一遍，不要只看示例。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R6',
+          title: 'CGLIB 动态代理与两者对比',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: 'JDK 动态代理的**限制**是"只能代理接口"（因为生成的代理类要 implements 你的接口）。' +
+                'CGLIB 通过**生成子类**绕过这个限制，所以能代理普通类，' +
+                '代价是：① 不能代理 final 类和 final 方法；② 需要字节码生成库（现在 Spring 用自带的）。' +
+                '最后给一张对比表 + 回答那个经典问题：' +
+                '**Spring AOP 什么时候用哪个？为什么 Spring Boot 之后默认又是 CGLIB 了？**' +
+                '（因为这题的答案会直接连到 `@Transactional` 失效问题。）',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L7.js —— IO / NIO
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层的主线是"从 BIO 到 NIO 到零拷贝"，
+ * 因为这条线一直连到 Netty、Kafka、Redis 的单线程模型。
+ * 顺带也是理解"装饰器模式"的最佳教材（为 L9 埋伏笔）。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L7',
+  title: 'IO / NIO',
+  subtitle: '从 BIO 到零拷贝',
+  status: 'todo',
+  goal: '能说清 BIO / NIO / AIO 的区别、NIO 三件套怎么配合、零拷贝省了什么，并能写一个最简的 NIO Echo Server。',
+
+  estimate: '4 节 · 约 2.5 小时',
+  interviewRefs: [
+    'BIO、NIO、AIO 的区别？',
+    'NIO 的三大核心组件是什么？',
+    'Selector 是怎么实现多路复用的？',
+    '什么是零拷贝？mmap 和 sendfile 的区别？',
+    '为什么乱码？怎么解决？',
+    '装饰器模式在 IO 里怎么体现的？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab70x.java'],
+      ['NIO Echo Server', '需要一个终端跑 Server、另一个跑 Client（或用 nc 连接）'],
+      ['看系统调用（可选）', 'macOS 上用 `dtruss` 或 `fs_usage` 观察 read/write'],
+      ['不需要', '任何第三方依赖']
+    ],
+    note: '⚠️ I3（NIO 三件套）是本层最值得花时间的一节，' +
+          '写完一个 Echo Server 之后，你会真正理解 Redis 为什么能用单线程扛住高并发。'
+  },
+
+  modules: [
+    {
+      id: 'I',
+      title: 'IO 与 NIO',
+
+      lessons: [
+        {
+          id: 'I1',
+          title: '字节流 vs 字符流与编码',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '① 为什么需要字符流：字节流只认 byte，遇到中文就得靠编码表翻译 —— 这就是乱码的根源；' +
+                '② 编码的本质（同一串字节，用不同字符集解出来是不同的字），动手制造一次乱码再修好它；' +
+                '③ 字节流和字符流怎么桥接（`InputStreamReader` / `OutputStreamWriter`）；' +
+                '④ 顺带认识**装饰器模式**：`new BufferedReader(new InputStreamReader(new FileInputStream(...)))` ' +
+                '这一串嵌套就是装饰器，为 L9 的 P4 埋个伏笔。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'I2',
+          title: 'BIO / NIO / AIO 的区别',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '这一节要建立一张清晰的心智图（**建议画图**）：' +
+                'BIO = 一个连接一个线程、阻塞；' +
+                'NIO = 一个线程管多个连接、同步非阻塞（靠 Selector 轮询）；' +
+                'AIO = 异步，操作完成后回调（Java 的 AIO 实际用得很少，要说明为什么）。' +
+                '再讲清楚"同步/异步"和"阻塞/非阻塞"是**两个不同维度**，很多人混为一谈。' +
+                '最后落到现实：Netty 为什么选 NIO。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'I3',
+          title: 'NIO 三件套：Channel / Buffer / Selector',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '本层最值得花时间的一节。' +
+                '① Buffer 的三个关键状态（position / limit / capacity）和 `flip()` 到底做了什么 —— ' +
+                '**这是初学 NIO 最容易懵的地方**，画图 + 打印三个值就能看懂；' +
+                '② Channel 是双向的（不像 InputStream 只能读）；' +
+                '③ Selector 的多路复用：注册、`select()`、`SelectionKey` 的四种事件；' +
+                '④ **动手写一个最简 NIO Echo Server**，用 `nc localhost 8080` 连上去试。' +
+                '⚠️ 写完之后回头看一眼 Redis 的单线程模型，会更清楚。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'I4',
+          title: '零拷贝',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '先讲清"传统 IO 读文件发网络"发生了 **4 次拷贝 + 4 次上下文切换**（画图），' +
+                '然后看三种优化：' +
+                '① `mmap`（把内核缓冲区和用户空间映射起来，省一次拷贝）；' +
+                '② `sendfile`（数据完全不用经过用户空间，省两次拷贝）；' +
+                '③ Java 里对应 `FileChannel.transferTo()`。' +
+                '最后点题：**Kafka 快的原因之一就是用了零拷贝**（直接呼应消息队列专题）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L8.js —— 新特性 Java 8 → 21
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层的定位是"会用 + 知道底层是什么"，不深挖。
+ * 但 Lambda 那节要看字节码（invokedynamic），因为这是面试区分度点。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L8',
+  title: '新特性 Java 8 → 21',
+  subtitle: '会用 + 知道底层',
+  status: 'todo',
+  goal: '能熟练用 Stream 和 Optional，知道 Lambda 在字节码层面是怎么实现的，了解 record / sealed / 模式匹配。',
+
+  estimate: '3 节 · 约 2 小时',
+  interviewRefs: [
+    'Lambda 是怎么实现的？（匿名内部类吗？）',
+    'Stream 的中间操作和终端操作的区别？',
+    'Stream 是惰性求值吗？怎么证明？',
+    'Stream 和 for 循环哪个快？',
+    'Optional 的正确用法？有哪些反模式？',
+    'Java 8 到 21 有哪些你用过的新特性？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab80x.java'],
+      ['看 Lambda 的本质', 'javap -c -p … | grep -i "invokedynamic\\|LambdaMetafactory"'],
+      ['提醒', 'JDK 21 里 record / sealed / 模式匹配 / 文本块都是正式特性，可以直接用']
+    ],
+    note: '⚠️ L8 和 L9 都是"可以放最后学"的层 —— 如果时间紧，可以先跳过，' +
+          '它们不影响前面几层（集合 / 反射）的面试准备。'
+  },
+
+  modules: [
+    {
+      id: 'N',
+      title: '现代 Java',
+
+      lessons: [
+        {
+          id: 'N1',
+          title: 'Lambda 与函数式接口',
+          status: 'todo',
+          weight: '中',
+          estimate: '40 min',
+          plan: '一个反直觉的结论：**Lambda 不是匿名内部类的语法糖**。' +
+                '匿名内部类会在编译期生成一个 `Xxx$1.class`，而 Lambda 用 `invokedynamic` 在运行时生成。' +
+                '动手：用 javap 看两者的字节码差别（`invokedynamic` vs `new`），再 `ls` 看有没有生成额外的 class 文件。' +
+                '然后过一遍四大内置函数式接口（`Function` / `Consumer` / `Supplier` / `Predicate`）及其变体。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'N2',
+          title: 'Stream API',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '① 中间操作（惰性）和终端操作（触发执行）的区别 —— ' +
+                '动手写一个"中间操作里打印日志"的 Stream，不调终端操作时看它会不会打印（证明惰性）；' +
+                '② 常用操作：`map` / `filter` / `flatMap` / `reduce` / `collect` / `groupingBy`；' +
+                '③ 并行流 `parallelStream()` 的坑（默认用 ForkJoinPool.commonPool、' +
+                '共享可变状态会出错、**不是所有场景都快**）；' +
+                '④ 实战：把一段 for 循环改写成 Stream，对比可读性；' +
+                '⑤ 什么时候**不该**用 Stream（简单循环、需要 break/continue、性能敏感的热点代码）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'N3',
+          title: 'Optional / record / sealed / 模式匹配 / var',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '一次性认识几个现代语法，目标是"会用 + 知道为什么要有它"。' +
+                '① `Optional` 的正确用法（当返回值，不要当字段/参数）和反模式（`isPresent()` + `get()` ' +
+                '等于换个写法写 null 判断；正确做法是 `orElse` / `map` / `ifPresent`）；' +
+                '② `record`（不可变数据载体，自动生成构造器/getter/equals/hashCode —— ' +
+                '正好回看 L1 的 O4、O5）；' +
+                '③ `sealed`（限制谁能继承）；' +
+                '④ switch 模式匹配；' +
+                '⑤ `var` 的使用边界。' +
+                '⚠️ 这节概念超过 3 个，请分批讲。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L9.js —— 设计模式（从 JDK 里找例子）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层刻意**不讲那 23 个模式的 UML 图**，而是"从你已经见过的 JDK 代码里认出来"：
+ *   装饰器 → IO 的流嵌套
+ *   迭代器 → 集合的 Iterator
+ *   策略   → Comparator / ThreadPoolExecutor 的拒绝策略
+ *   工厂   → Executors / Calendar.getInstance
+ *   观察者 → 事件监听
+ *   模板方法 → AbstractCollection
+ *   代理   → 已经在 L6 亲手写过了
+ * 面试问"你用过哪些设计模式"，答"我在 JDK 源码里认出了这些"比背 23 个强得多。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L9',
+  title: '设计模式（从 JDK 里找例子）',
+  subtitle: '不讲 UML，讲你在哪见过它',
+  status: 'todo',
+  goal: '能在 JDK 和 Spring 源码里认出常见设计模式，并写出 5 种单例、说清为什么双检锁需要 volatile。',
+
+  estimate: '4 节 · 约 2.5 小时',
+  interviewRefs: [
+    '你用过哪些设计模式？举例说明。（★ 要结合项目/JDK 说，不能只报名字）',
+    '单例有几种写法？双检锁为什么必须加 volatile？',
+    '枚举单例为什么是最安全的？',
+    'Spring 里用到了哪些设计模式？',
+    '策略模式和 if-else 重构（★ 这题要结合你项目里的实际代码）'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['跑实验', 'java labs/lab90x.java'],
+      ['看双检锁的坑', 'javap -c -p …　← 看字节码里初始化和赋值的顺序'],
+      ['还要看 JDK 源码', 'IO 的 FilterInputStream、集合的 AbstractCollection、Collections 的工具类'],
+      ['⚠️ 这层要和项目结合', '面试问的是"你在项目里用过哪些"，所以这里学的每种模式，' +
+                              '都要想一下"我的项目里哪个地方可以用"']
+    ],
+    note: '⚠️ 本层不要试图背 23 个模式。**只学 8 个最常用的**，' +
+          '而且每个都要能指出"我在哪段真实代码里见过"。'
+  },
+
+  modules: [
+    {
+      id: 'P',
+      title: '设计模式',
+
+      lessons: [
+        {
+          id: 'P1',
+          title: '单例的 5 种写法（本层最该动手的一节）',
+          status: 'todo',
+          weight: '高',
+          estimate: '50 min',
+          plan: '把 5 种写法逐个写出来、跑一遍、对比优缺点：' +
+                '① 饿汉式；② 懒汉式（线程不安全）；③ 同步方法（性能差）；' +
+                '④ **双检锁 DCL**；⑤ 静态内部类；⑥ 枚举。' +
+                '核心是搞清那个经典问题：**双检锁为什么要加 volatile？**' +
+                '答案是指令重排（`new` 分三步：分配内存 → 初始化 → 赋值引用，2 和 3 可能重排），' +
+                '用 javap 看字节码里的 `new` / `invokespecial` / `putstatic` 三条指令来印证。' +
+                '⚠️ 这节要能画出时序图讲清楚，是高频考点。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'P2',
+          title: '创建型：工厂 / 建造者',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '① 简单工厂 vs 工厂方法 vs 抽象工厂的区别（一句话：谁来决定创建哪个类）；' +
+                '② 从 JDK 找例子：`Executors`、`Calendar.getInstance()`、`List.of()`；' +
+                '③ 建造者模式（Builder）—— 参数很多时怎么用、' +
+                '从 JDK 找例子（`StringBuilder` 是建造者吗？想清楚这个问题）；' +
+                '④ **连到你的项目**：Spring 里的 `BeanDefinitionBuilder`、Lombok 的 `@Builder`。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'P3',
+          title: '行为型：策略 / 模板方法 / 责任链',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '这三个是**项目里最常用、也是面试最常问"你怎么重构"的**。' +
+                '① 策略模式：从 JDK 找例子（`Comparator`、线程池的四种拒绝策略）；' +
+                '然后动手把一段 `if-else if-else` 重构成策略模式（**这就是面试标准答案**）；' +
+                '② 模板方法：从 JDK 找例子（`AbstractCollection`、`InputStream.read()`）；' +
+                '③ 责任链：从"审批流/过滤器链"的角度理解，' +
+                '呼应你学过的 Spring 拦截器和 Servlet Filter。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'P4',
+          title: '结构型：代理 / 装饰器 / 适配器',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '① **代理**：L6 已经亲手写过 JDK 动态代理了，这里只补"静态代理"和"Spring 里怎么用"；' +
+                '② **装饰器**：这是最容易和代理搞混的一个。' +
+                '用 IO 的 `new BufferedReader(new InputStreamReader(...))` 讲清区别：' +
+                '**代理控制访问，装饰器增强功能**；' +
+                '③ **适配器**：`Arrays.asList()`、`InputStreamReader`（把字节流适配成字符流）；' +
+                '④ 收尾：做一张"容易混淆的模式对比表"（代理 vs 装饰器 vs 适配器 vs 外观）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          bytecode: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+window.__TOPICS__.push({ id: 'Java-Basic-Learn', name: 'Java 基础', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
+
+/* ===================== 专题：Redis [Redis-Learn] ===================== */
+window.ROADMAP_DATA = { levels: [] };
+/* =====================================================================
+ * plan.js —— 学习路线总览
+ * ---------------------------------------------------------------------
+ * 【给后续 AI 的交接说明，请先读完这一段再动手】
+ *
+ * 1. 本看板是"数据 / 呈现"分离的：
+ *      - roadmap/data/*.js  → 只放数据（本文件 + L0.js ~ L7.js）
+ *      - roadmap/index.html / style.css / app.js → 只负责呈现，改数据不用动它们
+ *
+ * 2. 新会话开始时：
+ *      a. 先读工作区根目录的 `Redis学习指导.md`（用户自己写的教学规则，必须遵守）
+ *      b. 再读 `roadmap/README.md`（数据格式约定）
+ *      c. 再读 `roadmap/data/L0.js`，找 status 为 "doing" 的课，从那里继续
+ *
+ * 3. 每讲完一节课，请更新对应的课：
+ *      - ⚠️ 第一步：出 2~4 道「本节课检验」题（覆盖本节课 + 之前学过的），
+ *        学生**全部答对**才能标 done；答错就讲清错在哪、换一道同类型题重问。
+ *        （见 `Redis学习指导.md` 的 5.1 规则 1 —— 答错不放行，看板 status 不许提前改 done）
+ *      - status: 'todo' → 'doing' → 'done'
+ *      - concepts: 最多 3 条（学生规则：一次最多 3 个新概念）
+ *      - cheatsheet: 这节课用到的命令，一条一行
+ *      - experiment: 补上 code / expected / errors / evidence
+ *      - findings: 追加"学到的结论"（一句话一条）
+ *      - metrics: 有数字的结论放这里（内存占用、命中率、耗时）
+ *      - quiz: 追加"我问了什么 + 学生怎么答的 + 纠正了什么"
+ *      - pitfalls: 追加学生踩过的坑
+ *
+ * 4. 开新层级时：复制一个已有的 Lx.js 结构，然后在下面 levels 里把 file 填上。
+ *    本仓库已经把 L0~L7 的**课程规划**都写好了，学到哪一层就补哪一层的内容。
+ *
+ * 5. ⚠️ 与 MySQL 版看板的差异（不要照搬 MySQL 的经验）：
+ *      - 实验不是 SQL，是 redis-cli 命令 → 用 experiment.code，不是 experiment.sql
+ *      - environment 用通用的 items 数组，没有"库 / 字符集"这种字段
+ *      - 多了 cheatsheet（命令速查）和 metrics（数值记录）两个板块
+ *      - Redis 的很多实验需要**两个终端**（一个跑 MONITOR / 开两个 redis-cli），
+ *        设计实验时要考虑这点，并写进 experiment.note
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+
+window.ROADMAP_DATA.overview = {
+  title: 'Redis 面试学习看板',
+  subtitle: '目标：国内 Java 后端开发岗 · 每个结论都用命令验证过',
+  workspace: '/Users/dingyujie/数据/Code/Redis-Learn',
+
+  // 学生档案（新会话的 AI 请据此调整讲解深度）
+  student: {
+    background: '对日开发初级工程师，准备跳槽国内 Java 后端岗；macOS + VS Code；练习项目 Spring Boot 4.1.1 + Java 21',
+    level: 'Redis 完全没用过。知道它是"缓存"，但不知道它有哪些数据类型、为什么快、数据存在哪。' +
+           ' MySQL 那边刚学完 L0（Docker 环境）和部分 L1（SQL 基础），已经会用 docker exec 进容器',
+    strength: '学过红黑树、AVL 树和高等数学，有能力理解跳表、SDS 这类底层结构；' +
+              '刚在 MySQL 项目里养成了"先动手做实验"的习惯，这个习惯要延续',
+    weakness: '① 习惯"先看懂再动手"，需要被推着先动手；' +
+              '② 容易把"会敲命令"当成"懂了原理"（Redis 面试恰恰只考原理）；' +
+              '③ 命令和参数容易拼错（在 MySQL 项目里把容器名 pg-learn 敲成 pg-leran）',
+    rulesFile: 'Redis学习指导.md'
+  },
+
+  // 层级总览。每加一个层级，在这里加一行，并在 data/ 下建对应的 js 文件。
+  levels: [
+    {
+      id: 'L0',
+      file: 'data/L0.js',
+      title: '环境与工具链（前置）',
+      status: 'doing',
+      meta: '3 节',
+      summary: '把 Redis 容器跑起来，学会用 redis-cli 和 INFO 观察它。不学任何原理，先让命令能通。'
+    },
+    {
+      id: 'L1',
+      file: 'data/L1.js',
+      title: '数据类型与常用命令',
+      status: 'todo',
+      meta: '7 节',
+      summary: 'String / List / Hash / Set / ZSet 五大类型 + 三个特殊类型。目标是看到业务需求就知道用哪个类型。'
+    },
+    {
+      id: 'L2',
+      file: 'data/L2.js',
+      title: '底层编码与单线程模型 ⭐',
+      status: 'todo',
+      meta: '5 节',
+      summary: '面试重头戏：为什么 Redis 快。SDS / ziplist / quicklist / 跳表，以及单线程 + IO 多路复用。'
+    },
+    {
+      id: 'L3',
+      file: 'data/L3.js',
+      title: '持久化 RDB / AOF',
+      status: 'todo',
+      meta: '4 节',
+      summary: '数据存在哪、宕机丢多少。fork 与写时复制，AOF 重写，两种方式的取舍。'
+    },
+    {
+      id: 'L4',
+      file: 'data/L4.js',
+      title: '过期策略与内存管理',
+      status: 'todo',
+      meta: '4 节',
+      summary: 'key 怎么过期、内存满了怎么办。8 种淘汰策略，大 key 的危害与排查。'
+    },
+    {
+      id: 'L5',
+      file: 'data/L5.js',
+      title: '缓存实战 ⭐ 面试最重',
+      status: 'todo',
+      meta: '6 节',
+      summary: '穿透 / 击穿 / 雪崩、缓存与数据库一致性、热点 key。这一层是面试问得最多的地方。'
+    },
+    {
+      id: 'L6',
+      file: 'data/L6.js',
+      title: '分布式锁与高可用',
+      status: 'todo',
+      meta: '6 节',
+      summary: 'SETNX 的坑、Redlock 争议、主从切换丢锁；以及主从复制、哨兵、Cluster。'
+    },
+    {
+      id: 'L7',
+      file: 'data/L7.js',
+      title: 'Spring Data Redis 整合',
+      status: 'todo',
+      meta: '3 节',
+      summary: '把前面学的落到代码里：RedisTemplate、序列化方式、连接池、Spring Cache 注解的坑。'
+    }
+  ]
+};
+/* =====================================================================
+ * L0.js —— 环境与工具链（前置课）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 本层只做一件事：让 Redis 跑起来、命令能通、会看 INFO。
+ * 不学任何原理 —— 原理从 L1 开始。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L0',
+  title: '环境与工具链（前置）',
+  subtitle: '先把 Redis 跑起来，再学它为什么快',
+  status: 'doing',
+  goal: '能自己起一个 Redis 容器，用 redis-cli 连上去，会用 INFO / CONFIG / MONITOR 观察它的状态。',
+
+  estimate: '3 节 · 约 1.5 小时',
+  interviewRefs: [
+    '面试不会直接问环境，但后面每一层都要用这些命令做实验',
+    'INFO 里的字段（命中率、内存、连接数）就是生产排障时要看的东西'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['容器名', 'redis-learn'],
+      ['镜像', 'redis:7'],
+      ['端口', '${REDIS_PORT} → 容器 6379（在 .env 里改）'],
+      ['数据卷', 'redis_data → /data（删容器不丢数据）'],
+      ['进交互式客户端', 'docker exec -it redis-learn redis-cli'],
+      ['跑实验文件', 'docker exec -i redis-learn redis-cli < labs/lab01.redis'],
+      ['启动', 'docker compose up -d'],
+      ['看状态', 'docker compose ps']
+    ],
+    note: 'compose.yaml 里故意不预设任何 Redis 参数（maxmemory / appendonly 等都保持默认），' +
+          '因为这些参数本身就是 L3、L4 的实验对象，学到那里用 CONFIG SET 现场改、现场观察。'
+  },
+
+  modules: [
+    {
+      id: 'D',
+      title: '把 Redis 跑起来',
+      desc: '和 MySQL 那个项目的 L0 是同一套路数：先让环境通，再学内容。',
+
+      lessons: [
+        {
+          id: 'D1',
+          title: '启动 Redis 容器并验证',
+          status: 'todo',
+          weight: '低',
+          estimate: '30 min',
+          plan: '用 docker compose 起一个带持久化的 Redis，验证它真的在跑，并搞清端口映射。' +
+                '复用 MySQL 项目里学过的容器知识，重点看"Redis 镜像和 MySQL 镜像的差异"。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D2',
+          title: 'redis-cli 的两种用法与常用参数',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: 'Redis 有两种用法：交互式（进去敲命令）和一次性（直接跟命令）。' +
+                '搞清 -h / -p / -a / -n / --scan 这几个参数，以及为什么实验要用 `redis-cli < file.redis` 的方式跑。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D3',
+          title: '用 INFO / CONFIG / MONITOR 观察 Redis',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '学会"看"Redis。INFO 的六个 section 各说什么；CONFIG GET / SET 怎么改参数（以及哪些参数必须重启）；' +
+                'MONITOR 能实时看到所有命令 —— 这是后面调试缓存问题的核心工具。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L1.js —— 数据类型与常用命令
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 目标：看到业务需求就知道该用哪个类型。这是 Redis 的"手感"，必须先有。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L1',
+  title: '数据类型与常用命令',
+  subtitle: '业务需求 → 该用哪个类型',
+  status: 'todo',
+  goal: '能在 5 秒内判断一个业务场景（排行榜 / 点赞 / 购物车 / 签到 / 限流）该用哪种数据类型，并写出对应命令。',
+
+  estimate: '7 节 · 约 3.5 小时',
+  interviewRefs: [
+    'Redis 有哪些数据类型，分别用在什么场景？',
+    'ZSet 的底层为什么用跳表不用红黑树？',
+    'Pipeline 和普通命令有什么区别？',
+    'HyperLogLog 为什么能只用 12KB 统计千万级 UV？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['进客户端', 'docker exec -it redis-learn redis-cli'],
+      ['实验文件', 'labs/lab10x.redis（每节课一个）'],
+      ['跑实验', 'docker exec -i redis-learn redis-cli < labs/lab101.redis'],
+      ['清空当前库', 'FLUSHDB（⚠️ 只在自己实验的容器里用）']
+    ],
+    note: '本层全程在 redis-cli 里敲命令，不写 Java 代码。先把"手感"练出来。'
+  },
+
+  modules: [
+    {
+      id: 'T',
+      title: '五大数据类型',
+      desc: '每一个都按同一个套路学：是什么结构 → 最常用的 6 个命令 → 什么业务会用到它 → 有什么坑。',
+
+      lessons: [
+        {
+          id: 'T1',
+          title: 'String：不只是存字符串',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: 'String 是最常用的类型，但它真正的价值在 INCR / SETNX / SETEX 这几个原子命令上。' +
+                '搞清 SETEX 和 SET + EXPIRE 的区别、SETNX 为什么能做分布式锁（这里只是引出，L6 细讲）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'T2',
+          title: 'Hash：存对象，还是存 JSON？',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: 'Hash 存对象 vs 把整个对象序列化成 String 存 —— 两种做法的取舍' +
+                '（改一个字段要不要读整个对象、内存占用、过期粒度）。这个选择在生产里很常见。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'T3',
+          title: 'List：队列、栈、最新列表',
+          status: 'todo',
+          weight: '中',
+          estimate: '40 min',
+          plan: 'List 是"两头都能进出"的结构，所以既能当队列也能当栈。' +
+                '重点搞清：LRANGE + LTRIM 做"只保留最新 N 条"、BRPOP 阻塞取（和轮询的差别）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'T4',
+          title: 'Set：去重与集合运算',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: 'Set 的两个用途：去重计数（SCARD）、集合运算（交集/并集/差集）。' +
+                '用"共同关注"、"抽奖去重"这类需求来体会 SINTER 和 SRANDMEMBER 的差别。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'T5',
+          title: 'ZSet：排行榜与延迟队列',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: 'ZSet 是面试最爱问的类型。搞清 score 的作用、ZRANGE / ZRANGEBYSCORE / ZRANK 的区别，' +
+                '以及"按时间戳做 score 就能当延迟队列"这个经典用法。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+    {
+      id: 'X',
+      title: '特殊类型',
+      desc: '不是"五种之外的补充"，而是解决特定问题的专用工具。',
+
+      lessons: [
+        {
+          id: 'X1',
+          title: 'Bitmap / HyperLogLog / GEO / Stream / Pipeline',
+          status: 'todo',
+          weight: '中',
+          estimate: '50 min',
+          plan: '五个东西一次性认识，目标是"知道它解决什么问题、代价是什么"，不深挖。' +
+                '重点：Bitmap 做签到、HyperLogLog 有误差但占 12KB、GEO 做附近的人、Stream 是 Redis 版消息队列、' +
+                'Pipeline 减少 RTT（但要注意它不是事务）。' +
+                '⚠️ 注意：这节概念多于 3 个，请分批讲，每个先给一条命令跑出结果。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+    {
+      id: 'P',
+      title: '类型选型实战',
+      desc: '把前两节学的类型反过来用：给需求，选类型。',
+
+      lessons: [
+        {
+          id: 'P1',
+          title: '十个业务场景的类型选型',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '给 10 个真实业务场景（用户签到、文章点赞、商品排行榜、购物车、限流、验证码、' +
+                '共同好友、消息队列、附近的人、短链接），每个说出该用哪个类型、为什么、有什么坑。' +
+                '这节是 L1 的"考试"，要先自己答，再看讲解。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L2.js —— 底层编码与单线程模型
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层是"为什么 Redis 快"的完整答案，也是面试区分度最高的地方。
+ * 学习方式：全部用 OBJECT ENCODING / INFO / DEBUG 命令现场观察，不背结论。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L2',
+  title: '底层编码与单线程模型 ⭐',
+  subtitle: '为什么 Redis 快（面试最爱问）',
+  status: 'todo',
+  goal: '能完整回答"Redis 为什么快"，并说清每种数据类型在不同规模下用的底层结构，以及单线程的代价。',
+
+  estimate: '5 节 · 约 3 小时',
+  interviewRefs: [
+    'Redis 为什么快？',
+    'Redis 是单线程还是多线程？6.0 为什么引入多线程？',
+    'ZSet 为什么用跳表而不是红黑树？',
+    'ziplist / listpack / quicklist 分别是什么，为什么要转换？',
+    '为什么 Redis 用 SDS 而不用 C 字符串？',
+    'Redis 有哪些慢命令会阻塞整个实例？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['观察编码', 'OBJECT ENCODING <key>'],
+      ['看配置阈值', 'CONFIG GET list-max-listpack-size 等'],
+      ['实验文件', 'labs/lab20x.redis'],
+      ['需要多终端', '观察阻塞实验时，需要两个 redis-cli（一个执行慢命令，一个测延迟）']
+    ],
+    note: '本层大量用 OBJECT ENCODING 来"看见"内部结构。这是把抽象变可见的关键工具 —— ' +
+          '就像 MySQL 那边用 EXPLAIN 一样。'
+  },
+
+  modules: [
+    {
+      id: 'E',
+      title: '数据结构与引擎',
+
+      lessons: [
+        {
+          id: 'E1',
+          title: '用 OBJECT ENCODING 看见内部结构',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '同一句 SET，存 10 个元素和存 1000 个元素，底层结构是不同的。' +
+                '学会用 OBJECT ENCODING 观察编码，并找到触发转换的阈值（配置项 + 元素个数 + 元素大小）。' +
+                '这是本层所有实验的基础工具。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E2',
+          title: 'SDS：为什么不用 C 字符串',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: 'C 字符串有三个问题：求长度是 O(n)、非二进制安全、容易缓冲区溢出。' +
+                'SDS 用「长度字段 + 预分配 + 二进制安全」解决它们，并搞清「惰性释放」和「内存预分配」策略。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E3',
+          title: 'List / Hash / Set / ZSet 的底层结构',
+          status: 'todo',
+          weight: '高',
+          estimate: '50 min',
+          plan: '四种类型的底层结构各是什么：quicklist、listpack、intset、hashtable、跳表。' +
+                '重点搞清「小数据量用紧凑结构省内存，数据量大了才转成真正的哈希表 / 跳表」这个设计思想。' +
+                '⚠️ 概念较多，请分两批：先 List + Hash，再 Set + ZSet。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E4',
+          title: '为什么快：单线程 + IO 多路复用',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '这是面试必答的一题。要说清四件事：纯内存操作、单线程没有锁竞争和上下文切换、' +
+                'epoll 多路复用、高效的数据结构。并说清 6.0 引入多线程只用在"网络读写"，命令执行仍然是单线程。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E5',
+          title: '单线程的代价：慢命令会阻塞所有人',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '亲手制造一次阻塞：开两个 redis-cli，一个执行 KEYS *（或对大 key 做 DEL），' +
+                '另一个同时测命令耗时，亲眼看到"一个人的慢 = 所有人的慢"。' +
+                '然后总结生产禁用命令清单（KEYS / FLUSHALL / 大 key 的 DEL / SMEMBERS 等）及其替代方案。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L3.js —— 持久化 RDB / AOF
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 核心问题：Redis 的数据在内存里，那关机 / 宕机之后还剩多少？
+ * 学习方式：改配置 → 写入数据 → 重启容器 → 看还剩什么。必须动手。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L3',
+  title: '持久化 RDB / AOF',
+  subtitle: '数据存在哪，宕机丢多少',
+  status: 'todo',
+  goal: '能说清 RDB 和 AOF 各自的原理、优缺点、丢数据的窗口，并给出生产配置建议。',
+
+  estimate: '4 节 · 约 2.5 小时',
+  interviewRefs: [
+    'RDB 和 AOF 的区别？怎么选？',
+    'BGSAVE 的 fork 和写时复制是怎么工作的？',
+    'AOF 重写是什么，为什么需要？',
+    'appendfsync 的三个值分别意味着什么？',
+    'Redis 宕机最多会丢多少数据？',
+    '混合持久化是什么？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['数据目录', '容器内 /data（挂的是命名卷 redis_data）'],
+      ['看文件', 'docker exec -it redis-learn ls -lh /data'],
+      ['改配置', 'CONFIG SET appendonly yes（部分参数要重启才生效）'],
+      ['模拟宕机', 'docker kill redis-learn  ← ⚠️ 只能用 kill，不能用 stop'],
+      ['重启后检查', '重启容器 → DBSIZE / KEYS * 看数据还在不在']
+    ],
+    note: '⚠️ 必须用 docker kill 而不是 docker stop。stop 会发 SIGTERM，Redis 会优雅关闭并保存数据，' +
+          '那就模拟不出宕机了 —— 这个区别本身就是很重要的一课。'
+  },
+
+  modules: [
+    {
+      id: 'R',
+      title: '两种持久化方式',
+
+      lessons: [
+        {
+          id: 'R1',
+          title: 'RDB：快照式持久化',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: 'RDB 就是"定时把内存整份拍成快照存到磁盘"。搞清 SAVE 和 BGSAVE 的区别、' +
+                'save 配置项的含义（"60 秒内有 1000 个 key 变化就存一次"）、' +
+                '以及 fork + 写时复制（COW）为什么能做到不阻塞主线程。' +
+                '动手：写入数据 → BGSAVE → 找到 dump.rdb → 看文件大小。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R2',
+          title: 'AOF：日志式持久化',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: 'AOF 记录的是"写命令"而不是数据快照。搞清写入流程（命令先到 AOF 缓冲区 → write 到文件 → fsync 落盘）、' +
+                'appendfsync 三个值（always / everysec / no）分别丢多少数据、性能差多少。' +
+                '动手：打开 AOF → 执行几条命令 → 打开 appendonly.aof 文件看内容。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R3',
+          title: 'AOF 重写与混合持久化',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: 'AOF 会无限膨胀（同一个 key 改 100 次就有 100 条命令），所以需要重写。' +
+                '搞清 BGREWRITEAOF 做了什么、重写期间的新命令怎么处理、以及混合持久化（RDB+AOF）解决了什么。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'R4',
+          title: '取舍与生产配置',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '把前三节合起来做一个决策：只用 RDB / 只用 AOF / 混合，各自适用什么业务、丢多少数据、' +
+                '恢复多快、占多少磁盘。' +
+                '做一次完整的"宕机演练"：写入 100 条 → kill → 重启 → 数还剩几条，用数字说话。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L4.js —— 过期策略与内存管理
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 两个问题：key 到期了怎么删？内存满了怎么办？
+ * 学习方式：全部用 INFO memory / OBJECT / CONFIG SET 现场观察。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L4',
+  title: '过期策略与内存管理',
+  subtitle: 'key 怎么过期，内存满了怎么办',
+  status: 'todo',
+  goal: '能说清 Redis 的过期删除机制、8 种内存淘汰策略的差别，并能自己查出大 key。',
+
+  estimate: '4 节 · 约 2.5 小时',
+  interviewRefs: [
+    'Redis 的过期键是怎么删除的？',
+    '内存满了 Redis 会怎样？有哪些淘汰策略？',
+    'Redis 的 LRU 和真正的 LRU 有什么区别？',
+    '什么是大 key？有什么危害？怎么发现？',
+    'Redis 的内存都被什么占了？',
+    '什么是内存碎片？怎么处理？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['看内存', 'INFO memory（逐项解读，不要只看 used_memory）'],
+      ['限定内存', 'CONFIG SET maxmemory 50mb（⚠️ 现场改、现场观察）'],
+      ['看淘汰策略', 'CONFIG GET maxmemory-policy'],
+      ['查大 key', 'redis-cli --bigkeys'],
+      ['查单个 key 占用', 'MEMORY USAGE <key>'],
+      ['看碎片率', 'INFO memory → mem_fragmentation_ratio']
+    ],
+    note: '本层要故意把 maxmemory 设得很小，逼出淘汰行为。' +
+          '⚠️ 做完实验记得把 maxmemory 改回 0（不限制），否则会影响后面几层的实验。'
+  },
+
+  modules: [
+    {
+      id: 'M',
+      title: '过期与内存',
+
+      lessons: [
+        {
+          id: 'M1',
+          title: '过期删除：惰性删除 + 定期删除',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '一个 key 到期了，Redis 不会立刻删它。搞清两种删除策略为什么必须配合使用：' +
+                '惰性删除（访问时才检查）省 CPU 但会留垃圾，定期删除（每秒抽样）清理但不清干净。' +
+                '动手：设一个 10 秒过期的 key，到点后用 TTL 和 EXISTS 观察它"还在但已过期"的状态。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'M2',
+          title: '内存淘汰：8 种 maxmemory-policy',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '内存满了 Redis 会拒绝写入，除非配置了淘汰策略。搞清 8 种策略的分类' +
+                '（noeviction / 针对所有 key / 只针对有 TTL 的 key）和各自的适用场景。' +
+                '重点：Redis 的 LRU 是"近似 LRU"（随机采样，不是链表），要说清为什么这么做、代价是什么。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'M3',
+          title: '大 key 与热 key',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '大 key 的危害是"一次操作阻塞整个实例"（呼应 L2 的 E5）。' +
+                '学会用 --bigkeys / MEMORY USAGE / --hotkeys 把它找出来，并说清治理方案' +
+                '（拆分、压缩、改用 Hash 分桶、4.0 后的 UNLINK 异步删除）。' +
+                '动手：造一个 10 万元素的 List，量它的内存占用，再对比 DEL 和 UNLINK 的耗时。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'M4',
+          title: '内存都用在哪了：INFO memory 逐项解读',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: 'used_memory / used_memory_rss / used_memory_peak / mem_fragmentation_ratio 各是什么，' +
+                '为什么 rss 通常大于 used_memory。以及内存碎片的成因和处理方式（重启、activedefrag）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L5.js —— 缓存实战 ⭐ 面试最重
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层是 Redis 在面试里被问得最多的地方。
+ * 学习方式：每个问题都要"先制造出来，再解决它"——不要直接背结论。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L5',
+  title: '缓存实战 ⭐ 面试最重',
+  subtitle: '穿透 / 击穿 / 雪崩 / 一致性',
+  status: 'todo',
+  goal: '能针对每个缓存问题说清「现象 → 原因 → 三种解法 → 各自代价」，并且每种都亲手复现过。',
+
+  estimate: '6 节 · 约 4 小时',
+  interviewRefs: [
+    '缓存穿透、击穿、雪崩分别是什么？怎么解决？',
+    '缓存和数据库怎么保证一致性？先删缓存还是先更新数据库？',
+    '为什么推荐先更新数据库再删缓存？',
+    '延迟双删是什么？为什么能降低不一致的概率？',
+    '什么是热点 key？怎么处理？',
+    '缓存预热怎么做？',
+    '什么时候不该用缓存？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['Redis', 'redis-learn 容器'],
+      ['数据库', '暂时用 MySQL 容器（Database-Learn 那个项目里的 mysql-learn）'],
+      ['需要两个终端', '一个跑 MONITOR 看命令流，一个发请求'],
+      ['压测', 'redis-benchmark 或简单的 shell 循环'],
+      ['实验文件', 'labs/lab50x.redis + labs/lab50x.sh']
+    ],
+    note: '⚠️ 本层会同时用到 Redis 和 MySQL 两个容器。' +
+          '如果 MySQL 容器没起，先 cd 到 Database-Learn 执行 docker compose up -d。'
+  },
+
+  modules: [
+    {
+      id: 'C',
+      title: '缓存问题与解法',
+
+      lessons: [
+        {
+          id: 'C1',
+          title: '缓存的读写模式：到底该在哪写库',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '先搞清四种模式（Cache Aside / Read Through / Write Through / Write Behind）的区别，' +
+                '以及为什么实际项目里 99% 用 Cache Aside（也就是"程序自己管缓存"）。' +
+                '这节是后面四节课的地基。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C2',
+          title: '缓存穿透：查一个不存在的数据',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '穿透的定义是"查的数据在缓存和数据库里都不存在"，所以每次请求都打到数据库。' +
+                '两种解法：缓存空值（要设短 TTL）和布隆过滤器（有误判，但省内存）。' +
+                '动手：模拟一个不存在的 ID 被高频请求，用 MONITOR 看到每次都 miss，然后加空值缓存再看一遍。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C3',
+          title: '缓存击穿：热点 key 突然过期',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '击穿的定义是"某个热点 key 过期的瞬间，大量请求同时打到数据库"。' +
+                '两种解法：互斥锁（只让一个线程去查库，其余等待）和逻辑过期（不设 TTL，值里存过期时间，异步更新）。' +
+                '说清两种解法的代价：互斥锁会阻塞、逻辑过期会短暂返回旧数据。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C4',
+          title: '缓存雪崩：大量 key 同时过期',
+          status: 'todo',
+          weight: '高',
+          estimate: '35 min',
+          plan: '雪崩和击穿的区别是"量级"：击穿是一个 key，雪崩是一大批 key 同时失效（或者 Redis 整个挂了）。' +
+                '解法：过期时间加随机值、多级缓存、熔断降级、集群高可用。' +
+                '重点说清"击穿 vs 雪崩"的边界，这是面试常挖的坑。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C5',
+          title: '缓存与数据库一致性 ⭐ 最难的一节',
+          status: 'todo',
+          weight: '高',
+          estimate: '60 min',
+          plan: '这是本节最容易被追问到底的问题。要能说清：' +
+                '① 为什么"先更新库再删缓存"比"先删缓存再更新库"好；' +
+                '② 即使这样在并发下仍会不一致，画时序图说明；' +
+                '③ 三种加强方案（延迟双删、消息队列异步删、订阅 binlog 删）各自代价；' +
+                '④ 什么业务可以接受最终一致，什么业务必须强一致。' +
+                '⚠️ 这节内容多，请分两批讲，中间先做一次实验。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C6',
+          title: '热点 key、缓存预热、多级缓存',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: '生产中真实遇到的问题：突发热点怎么发现、怎么把热点 key 打散（加随机后缀分片）、' +
+                '系统上线前怎么预热、本地缓存（Caffeine）+ Redis 的两级结构怎么设计、' +
+                '以及"什么时候不该用缓存"（强一致、写多读少、数据量太小）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L6.js —— 分布式锁与高可用
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 两层内容合在一起，因为它们有内在联系：
+ *   「主从切换导致锁丢失」这个问题，只有理解了主从复制才能说清。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L6',
+  title: '分布式锁与高可用',
+  subtitle: '锁怎么加才安全，Redis 挂了怎么办',
+  status: 'todo',
+  goal: '能写出一把正确的 Redis 分布式锁并说清每一步为什么必要；能说清主从 / 哨兵 / Cluster 的差别与限制。',
+
+  estimate: '6 节 · 约 4 小时',
+  interviewRefs: [
+    '用 Redis 怎么做分布式锁？',
+    '为什么 SETNX 之后一定要设过期时间？',
+    '为什么释放锁要用 Lua 脚本？',
+    '锁过期了业务还没执行完怎么办？（看门狗）',
+    'Redlock 有什么争议？',
+    '主从切换会导致锁丢失吗？',
+    '主从复制的原理？全量同步和增量同步？',
+    '哨兵怎么选主？',
+    'Redis Cluster 有多少个槽？MOVED 和 ASK 的区别？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['主从实验', '需要 3 个容器（1 主 2 从）→ labs/docker-compose-replication.yaml'],
+      ['哨兵实验', '在主从基础上加 3 个哨兵'],
+      ['Cluster 实验', '需要 6 个节点（3 主 3 从）→ 用 redis-cli --cluster create 起'],
+      ['实验文件', 'labs/lab60x.redis + labs/lab60x.sh'],
+      ['看复制状态', 'INFO replication（在主库和从库分别看）']
+    ],
+    note: '⚠️ 本层的多节点实验要临时起额外容器，实验做完记得 docker compose down，' +
+          '不要影响日常的单节点学习环境（redis-learn）。'
+  },
+
+  modules: [
+    {
+      id: 'K',
+      title: '分布式锁',
+
+      lessons: [
+        {
+          id: 'K1',
+          title: 'SETNX 的三个坑',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '朴素做法 `SETNX lock 1` 有三个致命问题：' +
+                '① 不加过期时间 → 进程崩了锁永远不释放；' +
+                '② 误删别人的锁 → A 超时释放了 B 的锁；' +
+                '③ 判断和删除不是原子操作 → 中间可能被切换。' +
+                '动手：把这三个问题一个个复现出来，再一个个修。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'K2',
+          title: '正确的实现：SET NX PX + Lua + 看门狗',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '把 K1 的三个坑逐个填上：' +
+                '`SET key value NX PX 30000` 一条命令搞定加锁（原子）、' +
+                'value 存唯一标识（比如 UUID）避免误删、' +
+                '用 Lua 脚本保证"判断 + 删除"原子、' +
+                '看门狗自动续期（业务没跑完不能丢锁）。' +
+                '最后手写一个能用的 Java 实现（用 StringRedisTemplate + DefaultRedisScript）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'K3',
+          title: 'Redlock 与 Redisson',
+          status: 'todo',
+          weight: '中',
+          estimate: '35 min',
+          plan: 'Redlock 的动机（单点 Redis 挂了锁就没了）、它要求的大多数节点成功、' +
+                '以及 Martin Kleppmann 与 antirez 的那场著名争论（对时钟漂移的依赖、GC 停顿问题）。' +
+                '然后看 Redisson 实际怎么做（lock / tryLock / 看门狗 / 可重入）。' +
+                '结论要落到"实际项目怎么选"。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+    {
+      id: 'H',
+      title: '高可用',
+
+      lessons: [
+        {
+          id: 'H1',
+          title: '主从复制',
+          status: 'todo',
+          weight: '高',
+          estimate: '45 min',
+          plan: '搞清全量同步（RDB 发给从库）和增量同步（复制积压缓冲区 + 偏移量）的触发条件、' +
+                'psync 的流程、repl_backlog_size 的作用、主从延迟从哪来。' +
+                '并回答关键问题：主库挂了，没同步过去的数据会丢 —— 那 L6 的锁会怎样？',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'H2',
+          title: '哨兵：自动选主',
+          status: 'todo',
+          weight: '中',
+          estimate: '40 min',
+          plan: '哨兵的三个职责：监控、通知、自动故障转移。' +
+                '搞清主观下线（单个哨兵认为挂了）和客观下线（达到 quorum 数量）的区别，' +
+                '哨兵的选主流程，以及为什么哨兵数量建议是奇数。' +
+                '动手：起 1 主 2 从 3 哨兵，手动 kill 掉主库，看哨兵多久完成切换。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'H3',
+          title: 'Cluster：分片集群',
+          status: 'todo',
+          weight: '中',
+          estimate: '45 min',
+          plan: '搞清 16384 个槽位的分配、MOVED 和 ASK 两种重定向的区别、' +
+                '为什么集群模式下多 key 操作（MGET / 事务 / Lua）受限、hash tag 怎么绕过。' +
+                '以及"什么时候才需要 Cluster"—— 先搞清它带来的代价（运维复杂度、客户端限制）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+/* =====================================================================
+ * L7.js —— Spring Data Redis 整合
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ * 这一层把前面学的落到代码里。放在最后是有意的：
+ *   先懂了原理，才知道每个配置项在干什么，也才踩得懂这些坑。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L7',
+  title: 'Spring Data Redis 整合',
+  subtitle: '把原理落到代码里',
+  status: 'todo',
+  goal: '能在 Spring Boot 项目里正确使用 Redis：序列化不出乱码、连接池配置合理、注解缓存知道什么时候会失效。',
+
+  estimate: '3 节 · 约 2 小时',
+  interviewRefs: [
+    'RedisTemplate 和 StringRedisTemplate 有什么区别？',
+    '为什么用 RedisTemplate 存进去的值在 redis-cli 里是乱码？',
+    'Spring Cache 的 @Cacheable 怎么配过期时间？',
+    '@Cacheable 为什么在本类内部调用时不生效？（和 @Transactional 是同一个原因）',
+    'Redis 连接池该怎么配？'
+  ],
+
+  environment: {
+    title: '本层环境',
+    items: [
+      ['项目', '新建一个最小的 Spring Boot 项目（或用你现有的练习项目）'],
+      ['依赖', 'spring-boot-starter-data-redis'],
+      ['客户端', 'Lettuce（默认，基于 Netty，线程安全）'],
+      ['实验文件', 'labs/lab7xx/（一个最小的 Maven 项目）'],
+      ['验证', '代码写入 → 用 redis-cli 读出来看是不是乱码']
+    ],
+    note: '这一层需要写 Java 代码，不再是纯命令行实验。' +
+          '⚠️ 注意你的项目是 Spring Boot 4.1.1，Spring Data Redis 版本也是 4.x，' +
+          '网上很多教程基于 Boot 2.x，配置项可能不同 —— 遇到不确定的先查版本。'
+  },
+
+  modules: [
+    {
+      id: 'G',
+      title: '在 Spring Boot 里用 Redis',
+
+      lessons: [
+        {
+          id: 'G1',
+          title: '接入与两个 Template 的区别',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '引入 starter、配置连接、理解自动配置做了什么。' +
+                '重点搞清 RedisTemplate 和 StringRedisTemplate 的区别，' +
+                '以及 Lettuce 连接池什么时候才真正需要配（不是所有项目都需要）。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'G2',
+          title: '序列化：为什么存进去是乱码',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: 'RedisTemplate 默认用 JDK 序列化，所以用 redis-cli 看到的是乱码、体积也大。' +
+                '搞清 KeySerializer / ValueSerializer / HashKeySerializer / HashValueSerializer 四个配置各管什么，' +
+                '以及为什么推荐 Key 用 String、Value 用 JSON。' +
+                '动手：先用默认配置写入 → 用 redis-cli 看乱码 → 改配置 → 再看。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'G3',
+          title: 'Spring Cache 注解与它的坑',
+          status: 'todo',
+          weight: '高',
+          estimate: '40 min',
+          plan: '@Cacheable / @CachePut / @CacheEvict 的用法，怎么配 TTL（默认永不过期，很危险），' +
+                '以及三个经典坑：' +
+                '① 同类内部调用不生效（本质是代理，和 @Transactional 失效是同一个原因）；' +
+                '② 缓存 null 值的行为；' +
+                '③ 自定义 key 生成策略。' +
+                '这节正好把"Spring 原理"和"Redis 缓存实战"连起来。',
+          concepts: [],
+          cheatsheet: [],
+          experiment: {},
+          findings: [],
+          metrics: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
+window.__TOPICS__.push({ id: 'Redis-Learn', name: 'Redis', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
+
+window.ROADMAP_DATA = { topics: window.__TOPICS__ };
+</script>
+
+<script>
+/* =====================================================================
+ * app.js —— 呈现逻辑（与数据无关）
+ * ---------------------------------------------------------------------
+ * 数据来源：window.ROADMAP_DATA
+ *   - .overview           来自 data/plan.js（标题 + 层级清单 + 学生档案）
+ *   - .levels[]           来自 data/L0.js、data/L1.js …（每层一个文件）
+ *
+ * plan.js 里 levels[].file 指向该层的数据文件，本文件会按顺序动态加载。
+ * 新增一个层级 = 新建 data/L2.js + 在 plan.js 的 levels 里加一行，不用改这里。
+ *
+ * ⭐ 本文件是**所有专题仓库共用的同一个文件**（Database-Learn / Redis-Learn /
+ *    Java-Basic-Learn …）。复制到新专题时**不需要改任何东西** ——
+ *    标题、层级、内容全部从 data/*.js 读。
+ *
+ * 为了能共用，下面这些字段同时支持"新旧两种写法"：
+ *   - 实验代码：experiment.code（新）或 experiment.sql（旧）
+ *   - 环境块：  environment.items 数组（新）或 environment 固定字段（旧）
+ *   - lesson.bytecode 和 lesson.metrics 只有部分专题用，没有就不渲染
+ *
+ * 同时支持两种**运行模式**：
+ *   - 单专题（每个专题仓库自己用）：
+ *       window.ROADMAP_DATA = { overview, levels }
+ *     这时 side bar 顶部不显示专题切换栏。
+ *   - 多专题（打包成单个 HTML 文件时用，见 build-board.sh）：
+ *       window.ROADMAP_DATA = { topics: [ {id, name, overview, levels}, ... ] }
+ *     这时 sidebar 顶部会出现一排专题标签，点击切换。
+ * ===================================================================== */
+
+(function () {
+  'use strict';
+
+  var ROOT = window.ROADMAP_DATA || {};
+
+  /* 把两种模式统一成 topics 数组 */
+  function normalizeTopics() {
+    if (ROOT.topics && ROOT.topics.length) {
+      return ROOT.topics.map(function (t, i) {
+        return {
+          id: t.id || ('t' + i),
+          name: t.name || (t.overview && t.overview.title) || ('专题' + (i + 1)),
+          overview: t.overview || { levels: [] },
+          levels: t.levels || []
+        };
+      });
+    }
+    if (ROOT.overview) {
+      return [{
+        id: 'single',
+        name: ROOT.overview.title || '学习看板',
+        overview: ROOT.overview,
+        levels: ROOT.levels || []
+      }];
+    }
+    return [];
+  }
+
+  var TOPICS = normalizeTopics();
+  var IS_MERGED = !!(ROOT.topics && ROOT.topics.length);   // 打包成单文件时 = true
+
+  var state = {
+    topicIndex: 0,
+    levelId: null,
+    filter: 'all',   // all | done | doing | todo
+    open: {}         // lessonId -> true
+  };
+
+  var STATUS_TEXT = { done: '已完成', doing: '进行中', todo: '未开始' };
+
+  function curTopic() {
+    return TOPICS[state.topicIndex] || { overview: { levels: [] }, levels: [] };
+  }
+  function curOverview() {
+    return curTopic().overview || { levels: [] };
+  }
+
+  /* ---------------- 工具 ---------------- */
+
+  function esc(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /* 行内 markdown：先转义 HTML，再把 **粗体** 和 `代码` 转成标签。
+     数据文件里可以直接写 **重点**，看板上会真正加粗。 */
+  function mdInline(v) {
+    var s = esc(v);
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    return s;
+  }
+
+  function weightClass(w) {
+    if (w === '高') return 'w-high';
+    if (w === '中') return 'w-mid';
+    return 'w-low';
+  }
+
+  function findLevelData(id) {
+    var list = curTopic().levels || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) return list[i];
+    }
+    return null;
+  }
+
+  function flattenLessons(level) {
+    var out = [];
+    (level.modules || []).forEach(function (m) {
+      (m.lessons || []).forEach(function (l) { out.push(l); });
+    });
+    return out;
+  }
+
+  function progressOf(level) {
+    var all = flattenLessons(level);
+    return {
+      total: all.length,
+      done: all.filter(function (l) { return l.status === 'done'; }).length,
+      doing: all.filter(function (l) { return l.status === 'doing'; }).length,
+      todo: all.filter(function (l) { return l.status === 'todo'; }).length
+    };
+  }
+
+  /* ---------------- 数据加载 ---------------- */
+
+  function loadScript(src) {
+    return new Promise(function (resolve) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () {
+        window.console.warn('[roadmap] 数据文件加载失败：' + src);
+        resolve();
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  function loadAll() {
+    // 打包成单个 HTML 时，所有数据已经内联在文件里了，不需要（也加载不到）外部文件
+    if (IS_MERGED) return Promise.resolve();
+
+    var files = (curOverview().levels || [])
+      .map(function (l) { return l.file; })
+      .filter(Boolean);
+    if (!files.length) return Promise.resolve();
+    return files.reduce(function (p, f) {
+      return p.then(function () { return loadScript(f); });
+    }, Promise.resolve());
+  }
+
+  /* ---------------- 侧栏 ---------------- */
+
+  function renderSidebar() {
+    var ov = curOverview();
+    document.getElementById('brand-sub').textContent = ov.subtitle || '';
+
+    var totalLessons = 0, totalDone = 0;
+    (ov.levels || []).forEach(function (meta) {
+      var d = findLevelData(meta.id);
+      if (!d) return;
+      var p = progressOf(d);
+      totalLessons += p.total;
+      totalDone += p.done;
+    });
+
+    var pct = totalLessons ? Math.round(totalDone / totalLessons * 100) : 0;
+    document.getElementById('progress-global').innerHTML =
+      '<div class="pg-label"><span>总体进度</span><span>' +
+      totalDone + ' / ' + totalLessons + ' 节 · ' + pct + '%</span></div>' +
+      '<div class="pg-track"><div class="pg-fill" style="width:' + pct + '%"></div></div>';
+
+    var nav = document.getElementById('level-nav');
+    nav.innerHTML = (ov.levels || []).map(function (meta) {
+      var d = findLevelData(meta.id);
+      var p = d ? progressOf(d) : null;
+      var metaText = p ? (p.done + '/' + p.total + ' 节') : (meta.meta || '未规划');
+      var cls = 'level-item' + (state.levelId === meta.id ? ' active' : '') +
+                (d ? '' : ' disabled');
+      return '<button class="' + cls + '" data-level="' + esc(meta.id) + '">' +
+        '<span class="dot ' + esc(meta.status || 'todo') + '"></span>' +
+        '<span class="level-text">' +
+        '<span class="level-name"><span class="level-id">' + esc(meta.id) + '</span>' +
+        esc(meta.title) + '</span>' +
+        '<span class="level-meta">' + esc(metaText) + '</span>' +
+        '</span>' +
+        '</button>';
+    }).join('');
+
+    Array.prototype.forEach.call(nav.querySelectorAll('.level-item'), function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.classList.contains('disabled')) return;
+        state.levelId = btn.getAttribute('data-level');
+        state.filter = 'all';
+        renderSidebar();
+        renderMain();
+      });
+    });
+  }
+
+  /* ---------------- 课程卡片 ---------------- */
+
+  function renderList(title, items, cls) {
+    if (!items || !items.length) return '';
+    return '<div class="section ' + cls + '">' +
+      '<div class="section-title">' + esc(title) + '</div><ul>' +
+      items.map(function (t) { return '<li>' + mdInline(t) + '</li>'; }).join('') +
+      '</ul></div>';
+  }
+
+  /* 速查：Redis 里是命令，Java 里是 API / 命令行，渲染成代码块 */
+  function renderCheatsheet(cs) {
+    if (!cs) return '';
+    var items = Array.isArray(cs) ? cs : (cs.items || []);
+    if (!items.length && !cs.title) return '';
+    return '<div class="section cheat">' +
+      '<div class="section-title">' + esc((cs && cs.title) || '速查') + '</div>' +
+      '<pre class="code">' + esc(items.join('\n')) + '</pre></div>';
+  }
+
+  /* 🆕 字节码观察：Java 基础专用 */
+  function renderBytecode(bc) {
+    if (!bc) return '';
+    var body = '';
+    if (bc.cmd) {
+      body += '<div class="kv"><b>怎么看：</b><code>' + esc(bc.cmd) + '</code></div>';
+    }
+    if (bc.out && bc.out.length) {
+      body += '<pre class="code">' + esc(bc.out.join('\n')) + '</pre>';
+    }
+    if (bc.what) {
+      body += '<div class="kv"><b>要看什么：</b>' + mdInline(bc.what) + '</div>';
+    }
+    if (!body) {
+      body = '<div class="kv" style="color:var(--text-mute)">字节码观察待补。</div>';
+    }
+    return '<div class="section bytecode"><div class="section-title">字节码观察</div>' +
+      body + '</div>';
+  }
+
+  function renderExperiment(exp) {
+    if (!exp) return '';
+    var body = '';
+    if (exp.file) {
+      body += '<div class="kv"><b>实验文件：</b><span class="mono">' + esc(exp.file) + '</span></div>';
+    }
+    // 兼容新旧两种写法：experiment.code（新）或 experiment.sql（旧，MySQL 版早期数据）
+    var codeLines = exp.code || exp.sql || [];
+    var codeLabel = exp.label || (exp.sql && !exp.code ? 'SQL' : null);
+    if (codeLines.length) {
+      if (codeLabel) {
+        body += '<div class="kv"><b>' + esc(codeLabel) + '</b></div>';
+      }
+      body += '<pre class="code">' + esc(codeLines.join('\n')) + '</pre>';
+    }
+    if (exp.expected) {
+      body += '<div class="kv"><b>预期看到什么：</b>' + mdInline(exp.expected) + '</div>';
+    }
+    if (exp.errors) {
+      body += '<div class="kv"><b>如果不一样，说明什么：</b>' + mdInline(exp.errors) + '</div>';
+    }
+    if (exp.evidence) {
+      body += '<div class="kv"><b>实验证据：</b>' + mdInline(exp.evidence) + '</div>';
+    }
+    if (exp.note) {
+      body += '<div class="kv" style="color:var(--text-mute)"><b>备注：</b>' + mdInline(exp.note) + '</div>';
+    }
+    if (!body) {
+      body = '<div class="kv" style="color:var(--text-mute)">实验待设计 —— 学到这一节时再补。</div>';
+    }
+    return '<div class="section exp"><div class="section-title">动手实验</div>' + body + '</div>';
+  }
+
+  /* 数值记录：有数字的结论（内存占用 / 耗时 / 循环次数） */
+  function renderMetrics(metrics) {
+    if (!metrics || !metrics.length) return '';
+    return '<div class="section"><div class="section-title">数值记录</div>' +
+      '<ul>' + metrics.map(function (m) { return '<li>' + mdInline(m) + '</li>'; }).join('') +
+      '</ul></div>';
+  }
+
+  /* 问答记录：只放学生真实的回答（原句），我的解释单独放 note */
+  function renderQuiz(quiz) {
+    if (!quiz || !quiz.length) return '';
+    return '<div class="section quiz"><div class="section-title">问答记录</div>' +
+      quiz.map(function (item) {
+        return '<div class="qa">' +
+          '<div class="qa-q">' + mdInline(item.q) + '</div>' +
+          '<div class="qa-label">我当时的回答</div>' +
+          (item.mine
+            ? '<div class="qa-mine">' + esc(item.mine) + '</div>'
+            : '<div class="qa-mine unanswered">（未回答）</div>') +
+          (item.note
+            ? '<div class="qa-label">讲解 / 纠正</div>' +
+              '<div class="qa-note">' + mdInline(item.note) + '</div>'
+            : '') +
+          '</div>';
+      }).join('') + '</div>';
+  }
+
+  /* 历史问答：方向调整前的记录，单独渲染在页面底部 */
+  function renderHistory(level) {
+    if (!level.history || !level.history.length) return '';
+    return level.history.map(function (block) {
+      return '<div class="history-block">' +
+        '<div class="history-title">' + esc(block.title) + '</div>' +
+        renderQuiz(block.quiz) +
+        '</div>';
+    }).join('');
+  }
+
+  function renderLesson(lesson) {
+    var st = lesson.status || 'todo';
+    var open = !!state.open[lesson.id];
+
+    var head = '<div class="lesson-head" data-toggle="' + esc(lesson.id) + '">' +
+      '<span class="lesson-id">' + esc(lesson.id) + '</span>' +
+      '<span class="lesson-title">' + esc(lesson.title) + '</span>' +
+      (lesson.weight
+        ? '<span class="badge ' + weightClass(lesson.weight) + '">面试权重 ' + esc(lesson.weight) + '</span>'
+        : '<span></span>') +
+      '<span class="badge ' + esc(st) + '">' + esc(STATUS_TEXT[st] || st) + '</span>' +
+      '<span class="meta">' + esc(lesson.estimate || '') + '　' + (open ? '▾' : '▸') + '</span>' +
+      '</div>';
+
+    if (!open) return '<div class="lesson ' + esc(st) + '">' + head + '</div>';
+
+    var body = '';
+    if (lesson.plan) {
+      body += '<div class="section plan"><div class="section-title">这节课要解决什么</div>' +
+        '<div class="kv">' + mdInline(lesson.plan) + '</div></div>';
+    }
+    body += renderList('新概念', lesson.concepts, 'concept');
+    body += renderCheatsheet(lesson.cheatsheet);
+    body += renderExperiment(lesson.experiment);
+    body += renderBytecode(lesson.bytecode);
+    body += renderList('学到的结论', lesson.findings, 'find');
+    body += renderMetrics(lesson.metrics);
+    body += renderList('踩过的坑', lesson.pitfalls, 'pit');
+    body += renderQuiz(lesson.quiz);
+
+    return '<div class="lesson ' + esc(st) + '">' + head +
+      '<div class="lesson-body">' + body + '</div></div>';
+  }
+
+  function renderModule(mod) {
+    var lessons = (mod.lessons || []).filter(function (l) {
+      return state.filter === 'all' || l.status === state.filter;
+    });
+    if (!lessons.length) return '';
+    return '<section class="module">' +
+      '<div class="module-head">' +
+      '<span class="module-badge">' + esc(mod.id) + '</span>' +
+      '<h2 class="module-title">' + esc(mod.title) + '</h2>' +
+      (mod.desc ? '<div class="module-desc">' + esc(mod.desc) + '</div>' : '') +
+      '</div>' +
+      lessons.map(renderLesson).join('') +
+      '</section>';
+  }
+
+  /* ---------------- 主区 ---------------- */
+
+  /* 环境块：兼容两种写法
+     - 新：environment.items 数组（每个专题的字段不一样）
+     - 旧：environment 固定字段（MySQL 版早期的 container/version/database/charset/...） */
+  function renderEnvironment(env) {
+    var e = env;
+    if (!e) return '';
+
+    if (e.items && e.items.length) {
+      var html = '<div class="notice"><b>' + esc(e.title || '环境') + '</b><br>' +
+        e.items.map(function (row) {
+          return '<div class="kv">' + esc(row[0]) + '：<code>' + esc(row[1]) + '</code></div>';
+        }).join('');
+      if (e.note) {
+        html += '<div class="kv" style="color:var(--text-mute)">' + mdInline(e.note) + '</div>';
+      }
+      return html + '</div>';
+    }
+
+    // 旧格式
+    var parts = [];
+    if (e.container) parts.push(esc(e.container));
+    if (e.version) parts.push(esc(e.version));
+    if (e.database) parts.push('库 <code>' + esc(e.database) + '</code>');
+    if (e.charset) parts.push(esc(e.charset));
+    var old = '<div class="notice"><b>环境</b>　' + parts.join(' · ') + '<br>';
+    if (e.connect) old += '连接：<code>' + esc(e.connect) + '</code><br>';
+    if (e.runLabFile) old += '跑实验文件：<code>' + esc(e.runLabFile) + '</code>';
+    if (e.note) old += '<br><span style="color:var(--text-mute)">' + mdInline(e.note) + '</span>';
+    return old + '</div>';
+  }
+
+  function renderMain() {
+    var main = document.getElementById('main');
+    var level = findLevelData(state.levelId);
+    var meta = (curOverview().levels || []).filter(function (m) { return m.id === state.levelId; })[0] || {};
+
+    if (!level) {
+      main.innerHTML =
+        '<div class="page-head"><h1 class="page-title">' + esc(meta.title || state.levelId) + '</h1>' +
+        '<div class="page-sub">' + esc(meta.summary || '') + '</div></div>' +
+        '<div class="empty"><h3>这个层级还没有建规划文件</h3>' +
+        '开始学这一层之前，先复制 <code>data/L1.js</code> 的结构建一个 <code>data/' +
+        esc(state.levelId) + '.js</code>，把整层的课程大纲写进去，' +
+        '然后在 <code>data/plan.js</code> 的 <code>levels</code> 里把 <code>file</code> 填上。<br><br>' +
+        '这样做的原因：把规划提前写进文件，你就可以开一个干净的会话从头学，' +
+        '不用怕上下文超限丢掉计划。</div>';
+      return;
+    }
+
+    var p = progressOf(level);
+
+    var html = '<div class="page-head">' +
+      '<h1 class="page-title">' + esc(level.id) + ' · ' + esc(level.title) + '</h1>' +
+      '<div class="page-sub">' + mdInline(level.subtitle || '') + '</div>' +
+      '<div class="head-grid">' +
+      '<div class="head-cell"><div class="k">目标</div><div class="v">' + mdInline(level.goal || '') + '</div></div>' +
+      '<div class="head-cell"><div class="k">规模</div><div class="v">' + esc(level.estimate || '') + '</div></div>' +
+      '<div class="head-cell"><div class="k">进度</div><div class="v">已完成 ' + p.done +
+      ' · 进行中 ' + p.doing + ' · 未开始 ' + p.todo + '</div></div>' +
+      '</div>';
+
+    if (level.interviewRefs && level.interviewRefs.length) {
+      html += '<div class="tags">' + level.interviewRefs.map(function (t) {
+        return '<span class="tag">' + mdInline(t) + '</span>';
+      }).join('') + '</div>';
+    }
+    html += '</div>';
+
+    if (level.environment) {
+      html += renderEnvironment(level.environment);
+    }
+
+    var counts = { all: p.total, done: p.done, doing: p.doing, todo: p.todo };
+    html += '<div class="toolbar">' +
+      ['all', 'done', 'doing', 'todo'].map(function (f) {
+        var label = { all: '全部', done: '已完成', doing: '进行中', todo: '未开始' }[f];
+        return '<button class="filter-btn' + (state.filter === f ? ' active' : '') +
+          '" data-filter="' + f + '">' + label + ' (' + counts[f] + ')</button>';
+      }).join('') +
+      '<span class="count">点课程标题展开详情</span></div>';
+
+    html += (level.modules || []).map(renderModule).join('');
+    html += renderHistory(level);
+
+    main.innerHTML = html;
+
+    Array.prototype.forEach.call(main.querySelectorAll('.filter-btn'), function (btn) {
+      btn.addEventListener('click', function () {
+        state.filter = btn.getAttribute('data-filter');
+        renderMain();
+      });
+    });
+
+    Array.prototype.forEach.call(main.querySelectorAll('[data-toggle]'), function (el) {
+      el.addEventListener('click', function () {
+        var id = el.getAttribute('data-toggle');
+        state.open[id] = !state.open[id];
+        renderMain();
+      });
+    });
+  }
+
+  /* ---------------- 专题切换（只在打包版显示） ---------------- */
+
+  function renderTopicTabs() {
+    var host = document.getElementById('topic-tabs');
+    if (!host) return;
+    if (TOPICS.length <= 1) { host.innerHTML = ''; host.style.display = 'none'; return; }
+    host.style.display = '';
+    host.innerHTML = TOPICS.map(function (t, i) {
+      var lv = t.levels || [];
+      var all = 0, done = 0;
+      lv.forEach(function (l) { var p = progressOf(l); all += p.total; done += p.done; });
+      var pct = all ? Math.round(done / all * 100) : 0;
+      return '<button class="topic-tab' + (i === state.topicIndex ? ' active' : '') +
+        '" data-topic="' + i + '">' +
+        '<span class="tt-name">' + esc(t.name) + '</span>' +
+        '<span class="tt-pct">' + pct + '%</span>' +
+        '</button>';
+    }).join('');
+
+    Array.prototype.forEach.call(host.querySelectorAll('.topic-tab'), function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.getAttribute('data-topic'), 10);
+        if (i === state.topicIndex) return;
+        switchTopic(i);
+      });
+    });
+  }
+
+  function switchTopic(i) {
+    state.topicIndex = i;
+    state.filter = 'all';
+    state.open = {};
+    var ov = curOverview();
+    var preferred = (ov.levels || []).filter(function (l) { return l.status === 'doing'; })[0]
+      || (ov.levels || [])[0];
+    state.levelId = preferred ? preferred.id : null;
+    flattenLessonsOfTopic(i).forEach(function (l) {
+      if (l.status === 'doing') state.open[l.id] = true;
+    });
+    var t = TOPICS[i];
+    document.title = (t && t.overview && t.overview.title) || '学习看板';
+    var bt = document.getElementById('brand-title');
+    if (bt) bt.textContent = document.title;
+    renderTopicTabs();
+    renderSidebar();
+    renderMain();
+    window.scrollTo(0, 0);
+  }
+
+  function flattenLessonsOfTopic(i) {
+    var out = [];
+    ((TOPICS[i] || {}).levels || []).forEach(function (lv) {
+      flattenLessons(lv).forEach(function (l) { out.push(l); });
+    });
+    return out;
+  }
+
+  /* ---------------- 启动 ---------------- */
+
+  function boot() {
+    var ov = curOverview();
+    var title = ov.title || '学习看板';
+    document.title = title;
+    var bt = document.getElementById('brand-title');
+    if (bt) bt.textContent = title;
+
+    var preferred = (ov.levels || []).filter(function (l) { return l.status === 'doing'; })[0]
+      || (ov.levels || [])[0];
+    state.levelId = preferred ? preferred.id : null;
+
+    loadAll().then(function () {
+      flattenLessonsOfTopic(state.topicIndex).forEach(function (l) {
+        if (l.status === 'doing') state.open[l.id] = true;
+      });
+      renderTopicTabs();
+      renderSidebar();
+      renderMain();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
