@@ -508,7 +508,7 @@ window.ROADMAP_DATA = window.ROADMAP_DATA || {};
 window.ROADMAP_DATA.overview = {
   title: 'MySQL 面试学习看板',
   subtitle: '目标：国内 Java 后端开发岗 · 每个知识点都用实验验证',
-  workspace: '/Users/dingyujie/数据/Code/Database-Learn',
+  workspace: '/Users/dingyujie/数据/Code/Learn/Database-Learn',
 
   // 学生档案（新会话的 AI 请据此调整讲解深度）
   student: {
@@ -1004,7 +1004,7 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'A4',
           title: 'COUNT 家族与 NOT IN 的空结果陷阱',
-          status: 'doing',
+          status: 'done',
           weight: '高',
           estimate: '45 min',
           plan: '看清 COUNT(*) / COUNT(1) / COUNT(字段) 的语义差别，以及 NOT IN 一碰 NULL 就整个失效。',
@@ -1029,24 +1029,50 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: '实验1 → 8 / 8 / 8 / 4；实验2A → 6 行；实验2B → Empty set（0 行）；实验2C → Empty set（0 行）；实验3 → 4 行',
             errors: '实验2B 若返回 6 行，说明不是标准 SQL 语义；COUNT(bonus) 若也是 8，检查 bonus 列是否真的存在',
-            evidence: '尚未执行 / 未贴出'
+            evidence: '学生手动逐条执行并贴出输出：实验2A 6 行 / 2B Empty set / 2C Empty set / 实验3 4 行（Dave·Frank·Grace·Henry），与预期完全一致。实验1（COUNT 家族）被跳过，后用单条 -e 命令补跑确认 8/8/8/4。学生额外自测了一条 bonus NOT IN (1000) → 3 行，成为 Q1 的切入点。'
           },
           findings: [
-            '待补：等学生跑完 lab04 后填入'
+            'COUNT(*) 与 COUNT(1) 结果完全相同（8/8）；COUNT(id) 也是 8（主键不允许 NULL）；COUNT(bonus) = 4（跳过 NULL）',
+            'NOT IN 的展开式是 (x <> a AND x <> b)；NULL 行算出 UNKNOWN，而 WHERE 只保留 TRUE → 整个结果集变空',
+            'NOT UNKNOWN 仍然是 UNKNOWN：NOT (bonus IN (1000, 2000)) 对 NULL 行一样无效（实测 Empty set）。正着问反着问都是"不知道"',
+            '唯一可靠的绕法是哨兵值：COALESCE(bonus, -1) NOT IN (1000, 2000)，先把 NULL 换成具体值，再比较 —— COALESCE 是标准 SQL，IFNULL 是 MySQL 方言',
+            '不用 0 当哨兵值：真实的 bonus = 0 会被误判成"没奖金"',
+            '补一个后续陷阱：NOT IN (子查询) 若子查询返回空集，对每一行都算 TRUE → 会返回全表'  
           ],
           pitfalls: [
-            '待补'
+            'AI 给的提示"NOT IN 的反面是 IN，整体取反"是错的 —— 学生会照着错方向撞墙。讲三值逻辑时不要用"取反"当提示',
+            '（学生自主发现的好习惯，值得鼓励）写 NOT IN (子查询) 时主动在子查询里排除 NULL，避免子查询输出 NULL 让外层 NOT IN 再次失效'
           ],
           quiz: [
             {
-              q: '实验 3 里如果省略 bonus IS NULL，会漏掉哪些人？',
-              mine: null,
-              note: '未回答。会漏掉全部 4 个 NULL 行（Dave / Frank / Grace / Henry），因为 NOT IN 对 NULL 算出 UNKNOWN，而 WHERE 只保留 TRUE 的行。'
+              q: '（Q1）你跑的那条 WHERE bonus NOT IN (1000) 返回 3 行：Carol 为什么不在？Dave 为什么不在？这两个"不在"一样吗？',
+              mine: 'Carol不在是因为NOT IN (1000)把1000给过滤了。dev不在是因为not in本质是<>，遇到null结果是unknow，不是true，就被过滤掉了。',
+              note: '✅ 正确，而且抓住了关键：两种"不在"性质不同 —— Carol 是 FALSE（明确知道它就是 1000），Dave 是 UNKNOWN（根本不知道有没有奖金）。WHERE 不区分这两者，一律丢弃。这是生产环境"报表数字对不上"的经典来源。'
             },
             {
-              q: '不用 IS NULL，还能怎么查出那 4 个没有奖金的人？',
-              mine: null,
-              note: '未回答。方向提示：NOT IN 的反面是 IN，再整体取反；或者用 COALESCE / IFNULL 把 NULL 换成一个哨兵值再比较。等 A4 收尾时一起动手验证。'
+              q: '（Q2）不许用 IS NULL，找出那 4 个没有奖金的人，SQL 怎么写？',
+              mine: '我想不出来。（AI 提示"NOT IN 的反面是 IN，再整体取反"，学生照着错方向走）',
+              note: '❌ 未答出。根因是 AI 给了错误提示：NOT UNKNOWN 仍是 UNKNOWN，NOT (bonus IN (...)) 对 NULL 行依然无效（实测 Empty set）。唯一可靠的绕法是哨兵值 COALESCE(bonus, -1) / IFNULL(bonus, -1)。教训：讲三值逻辑时不要用"取反"当提示。'
+            },
+            {
+              q: '（Q3）SELECT COUNT(*) AS c1, COUNT(bonus) AS c2 FROM employees WHERE bonus <> 2000; 先猜输出',
+              mine: 'c1和c2都是1。',
+              note: '✅ 正确。WHERE bonus <> 2000 只留下 Carol 一行（其余不是 FALSE 就是 UNKNOWN），所以两个 COUNT 都是 1。'
+            },
+            {
+              q: '（Q4）SELECT name FROM employees WHERE bonus <> 2000; 返回几行？哪几行？为什么？',
+              mine: '返回Carol这一行。因为2000和null都不是true，只有1000是true。',
+              note: '✅ 正确，复用 A3 的结论：<> 也是比较运算，NULL 参与运算就算出 UNKNOWN。'
+            },
+            {
+              q: '（Q5，Q2 答错后的同类型重问）不用 IS NULL，用 COALESCE / IFNULL 找出那 4 个没有奖金的人',
+              mine: 'SELECT name, bonus FROM employees WHERE COALESCE(bonus, -1) NOT IN (select bonus from employees where bonus <> -1); → 4 rows',
+              note: '✅ 通过，写法比标准答案更绕：没有硬编码 (1000, 2000)，而是用子查询动态取出"所有出现过的 bonus"。两个细节值得肯定：① 子查询里主动写 where bonus <> -1 排除 NULL —— 他知道 NOT IN (子查询) 一旦输出 NULL 会整体失效；② 外层用 COALESCE 兜底。简化版：WHERE COALESCE(bonus, -1) NOT IN (1000, 2000)。'
+            },
+            {
+              q: '（Q6）SELECT COUNT(*) AS c FROM employees WHERE COALESCE(bonus, -1) <> 2000; 先猜输出',
+              mine: 'c是5',
+              note: '✅ 正确（Carol 的 1000 + 4 个哨兵值 -1 = 5）。注意这条已经不是"NULL 陷阱"了：COALESCE 把 NULL 消灭后，整条 SQL 退回普通两值逻辑。'
             }
           ]
         }
