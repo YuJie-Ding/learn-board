@@ -1088,7 +1088,7 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'B1',
           title: 'UNION vs UNION ALL 与集合运算',
-          status: 'todo',
+          status: 'doing',
           weight: '中',
           estimate: '45 min',
           plan: '搞清 UNION 为什么要去重、去重的代价是什么；顺带看 INTERSECT / EXCEPT（MySQL 8.0.31+）。',
@@ -1097,7 +1097,23 @@ window.ROADMAP_DATA.levels.push({
             'UNION 去重的实现代价：需要临时表或排序，数据量大时很慢',
             '列数必须一致、类型会做隐式转换'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：同一份数据分别用 UNION 和 UNION ALL，对比行数与耗时' },
+          experiment: {
+            file: 'lab05.sql',
+            sql: [
+              '-- 先建一张离职员工表：Alice / Carol 与主表重复，另加 Ivan / Judy 两个新人',
+              'SELECT name FROM employees UNION ALL SELECT name FROM ex_employees;   -- 12 行',
+              'SELECT name FROM employees UNION     SELECT name FROM ex_employees;   -- 10 行',
+              'SELECT name, dept FROM employees UNION SELECT name, dept FROM ex_employees;  -- 仍 10 行',
+              'SELECT name, salary FROM employees UNION SELECT name FROM ex_employees;      -- ERROR 1222 列数不一致',
+              'SELECT id FROM employees UNION SELECT name FROM ex_employees;                -- 类型不一致，观察 id 列',
+              'SELECT name FROM employees INTERSECT SELECT name FROM ex_employees;          -- 2 行',
+              'SELECT name FROM employees EXCEPT    SELECT name FROM ex_employees;          -- 6 行',
+              'SELECT name FROM employees UNION ALL SELECT name FROM ex_employees ORDER BY name;  -- 12 行，ORDER BY 写在最后'
+            ],
+            expected: 'UNION ALL 12 行 / UNION 10 行（去重掐掉 Alice、Carol 各一份）/ 加列后仍 10 行（说明去重是按 SELECT 列出的所有列整行比）/ 列数不一致报 ERROR 1222 / INTERSECT 2 行 / EXCEPT 6 行',
+            errors: '实验2 若也是 12 行，检查是不是把 UNION 写成了 UNION ALL；实验6 报语法错说明 MySQL < 8.0.31，跑 SELECT VERSION() 确认',
+            evidence: '待学生贴出'
+          },
           findings: [],
           pitfalls: [],
           quiz: []
