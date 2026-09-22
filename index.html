@@ -1403,7 +1403,9 @@ window.ROADMAP_DATA.levels.push({
               '-- 实验11：故意的 —— WHERE 里引用 SELECT 的别名',
               'SELECT dept, COUNT(*) AS cnt FROM employees WHERE cnt > 2 GROUP BY dept;  -- ERROR 1054',
               '-- ===== 批次二：分组取每组前 N 名 =====',
+              '-- 实验12：为什么不能直接 GROUP BY + MAX 拿前 N 名',
               'SELECT dept, MAX(salary) AS max_salary FROM employees GROUP BY dept;  -- 3 行：每组只给 1 个值',
+              '-- 实验13：想把名字一起显出来',
               'SELECT dept, name, MAX(salary) FROM employees GROUP BY dept;  -- ERROR 1055',
               '-- 实验14：关掉严格模式后的「事故现场」（跑完必须恢复）',
               'SET SESSION sql_mode = \'\';  SELECT dept, name, MAX(salary) FROM employees GROUP BY dept;  -- RD | Alice | 22000（错配）',
@@ -1419,7 +1421,7 @@ window.ROADMAP_DATA.levels.push({
               'SELECT t.dept, t.name, t.salary FROM (SELECT dept, name, salary, ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) AS rn FROM employees) t WHERE t.rn <= 2 ORDER BY t.dept, t.salary DESC;  -- 6 行',
               '-- 实验19：边界 < 1 → 3 行；< 3 → 8 行'
             ],
-            expected: '实验2 → RD 3 / SALES 3 / MKT 2；实验3 → ERROR 1055（name 不在 GROUP BY 里）；实验4 → 8 行，合法（id 是主键，函数依赖成立）；实验5 → ERROR 1055；实验6 → 能跑但 name 每组只给一行（实测 Alice / Carol / Frank，MySQL 不保证）；实验7 → RD 18333.3333 / SALES 12000 / MKT 11000；实验8 → RD 18333.3333 / SALES 10166.6667 / MKT 10500；实验9 → RD 3 / SALES 3；实验10 → ERROR 1111 Invalid use of group function；实验11 → ERROR 1054 Unknown column "cnt" in "where clause"',
+            expected: '实验2 → RD 3 / SALES 3 / MKT 2；实验3 → ERROR 1055（name 不在 GROUP BY 里）；实验4 → 8 行，合法（id 是主键，函数依赖成立）；实验5 → ERROR 1055；实验6 → 能跑但 name 每组只给一行（实测 Alice / Carol / Frank，MySQL 不保证）；实验7 → RD 18333.3333 / SALES 12000 / MKT 11000；实验8 → RD 18333.3333 / SALES 10166.6667 / MKT 10500；实验9 → RD 3 / SALES 3；实验10 → ERROR 1111 Invalid use of group function；实验11 → ERROR 1054 Unknown column "cnt" in "where clause"；【批次二】实验12 → 3 行（每组只给 1 个值）；实验13 → ERROR 1055；实验14 → RD | Alice | 22000（名字与最大值错配，且不报错）；实验15 / 16 / 17b / 18 → 各 6 行；实验17 → 只剩 3 行（Frank / Bob / Henry，每组第 1 名失踪）；实验19 → < 1 得 3 行、< 3 得 8 行',
             errors: '实验3 / 5 若没报错，说明 sql_mode 里没有 ONLY_FULL_GROUP_BY，先 SELECT @@SESSION.sql_mode 确认；实验6 跑完务必恢复 sql_mode，否则后面所有实验的结论都会跟着变；实验17 只剩 3 行是故意的，换成 LEFT JOIN + COUNT(e2.id) 才是对的；实验16 的 COUNT(*) 包含自己，所以配 >=；实验17b 必须写 COUNT(e2.id) 而不是 COUNT(*)，否则 N = 1 时会出错',
             evidence: '批次一：学生贴出全部输出与预期一致（实验3 报 1055 / 实验4 8 行 / 关模式后 name 给出 Alice·Carol·Frank / 恢复后 sql_mode 含 ONLY_FULL_GROUP_BY / 实验11 报 1054），Q1、Q2 也都答对。批次二：待学生贴出'
           },
