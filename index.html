@@ -313,6 +313,7 @@ code, pre, .mono { font-family: var(--mono); }
 .section.find .section-title::before   { background: #2ecc71; }
 .section.pit .section-title::before    { background: #f87171; }
 .section.quiz .section-title::before   { background: #f5a623; }
+.section.dataset .section-title::before{ background: #2dd4bf; }
 
 .section ul { margin: 0; padding-left: 20px; }
 .section li { margin: 3px 0; color: var(--text-dim); font-size: 13.5px; }
@@ -333,6 +334,41 @@ pre.code {
 
 .kv { font-size: 13.5px; color: var(--text-dim); margin: 5px 0; }
 .kv b { color: var(--text); font-weight: 600; }
+
+/* ---------------- 实验数据快照（跑之前表里长什么样） ---------------- */
+.dtable-block { margin: 10px 0 4px; }
+.dtable-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 5px; }
+.dtable-name { font-family: var(--mono); font-size: 13px; color: var(--text); }
+.dtable-meta { font-size: 11.5px; color: var(--text-mute); }
+
+.dtable-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0b0d11;
+}
+table.dtable { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 12.5px; }
+table.dtable th,
+table.dtable td {
+  padding: 5px 12px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+table.dtable thead th {
+  background: var(--panel-3); color: var(--text-mute);
+  font-weight: 600; font-size: 11px; letter-spacing: .3px;
+}
+table.dtable tbody td { color: var(--text-dim); }
+table.dtable tbody tr:last-child td { border-bottom: none; }
+table.dtable tbody tr:hover td { background: var(--panel-2); }
+table.dtable th.focus,
+table.dtable td.focus { background: var(--accent-dim); color: var(--text); }
+
+.null { color: #7a8290; font-style: italic; font-size: 11px; letter-spacing: .5px; }
+
+.ddl { margin-top: 7px; }
+.ddl summary { cursor: pointer; font-size: 12px; color: var(--text-mute); user-select: none; }
+.ddl summary:hover { color: var(--accent); }
+.ddl pre.code { margin-top: 6px; }
 
 .qa {
   background: var(--panel);
@@ -4418,6 +4454,71 @@ window.ROADMAP_DATA = { siteTitle: 'learn-board', topics: window.__TOPICS__ };
       body + '</div>';
   }
 
+  /* 🆕 实验数据快照 —— 跑实验之前，表里到底长什么样
+     为什么需要它：复习时只看到 SQL 和结果，不知道当时表里是什么数据，
+     根本对不上号（"为什么 WHERE bonus <> 2000 只返回 Carol？"）。
+
+     lesson.dataset = {
+       label: '实验开始前的数据',   // 可选，默认「实验数据」
+       note:  '一句话补充',          // 可选
+       tables: [
+         {
+           name: 'employees',        // 表名
+           columns: ['id', 'name'],  // 列名（表头）
+           rows: [[1, 'Alice'], ...],// 每行用数组按 columns 的顺序填
+           focus: ['bonus'],         // 可选：本节重点关注的列，会高亮
+           note:  'bonus 是本次新加的列',  // 可选
+           ddl:   'CREATE TABLE ...' // 可选，折叠在「建表语句」里
+         }
+       ]
+     }
+     值写 null 会渲染成灰色的 NULL，别写成 'NULL' 字符串（那样看不出真假）。 */
+  function renderCell(v) {
+    if (v === null || v === undefined) return '<span class="null">NULL</span>';
+    if (v === true) return 'TRUE';
+    if (v === false) return 'FALSE';
+    return esc(v);
+  }
+
+  function renderDataTable(tb) {
+    if (!tb || !tb.columns || !tb.columns.length) return '';
+    var focus = tb.focus || [];
+    var cls = function (c) { return focus.indexOf(c) >= 0 ? ' class="focus"' : ''; };
+
+    var head = '<tr>' + tb.columns.map(function (c) {
+      return '<th' + cls(c) + '>' + esc(c) + '</th>';
+    }).join('') + '</tr>';
+
+    var body = (tb.rows || []).map(function (r) {
+      return '<tr>' + tb.columns.map(function (c, i) {
+        return '<td' + cls(c) + '>' + renderCell(r[i]) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+
+    var html = '<div class="dtable-block">';
+    html += '<div class="dtable-head"><span class="dtable-name">' + esc(tb.name) + '</span>' +
+      '<span class="dtable-meta">' + tb.columns.length + ' 列 × ' +
+      (tb.rows || []).length + ' 行</span></div>';
+    if (tb.note) html += '<div class="kv">' + mdInline(tb.note) + '</div>';
+    html += '<div class="dtable-wrap"><table class="dtable">' +
+      '<thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+    if (tb.ddl) {
+      html += '<details class="ddl"><summary>建表语句</summary>' +
+        '<pre class="code">' + esc(tb.ddl) + '</pre></details>';
+    }
+    return html + '</div>';
+  }
+
+  function renderDataset(ds) {
+    if (!ds || !ds.tables || !ds.tables.length) return '';
+    var inner = ds.tables.map(renderDataTable).join('');
+    if (ds.note) {
+      inner += '<div class="kv" style="color:var(--text-mute)">' + mdInline(ds.note) + '</div>';
+    }
+    return '<div class="section dataset"><div class="section-title">' +
+      esc(ds.label || '实验数据（跑之前，表里长这样）') + '</div>' + inner + '</div>';
+  }
+
   function renderExperiment(exp) {
     if (!exp) return '';
     var body = '';
@@ -4512,6 +4613,7 @@ window.ROADMAP_DATA = { siteTitle: 'learn-board', topics: window.__TOPICS__ };
     }
     body += renderList('新概念', lesson.concepts, 'concept');
     body += renderCheatsheet(lesson.cheatsheet);
+    body += renderDataset(lesson.dataset);
     body += renderExperiment(lesson.experiment);
     body += renderBytecode(lesson.bytecode);
     body += renderList('学到的结论', lesson.findings, 'find');
@@ -4702,17 +4804,25 @@ window.ROADMAP_DATA = { siteTitle: 'learn-board', topics: window.__TOPICS__ };
   /* ---------------- 启动 ---------------- */
 
   function boot() {
-    var ov = curOverview();
     var title = titleOfTopic(TOPICS[state.topicIndex]);
     document.title = title;
     var bt = document.getElementById('brand-title');
     if (bt) bt.textContent = title;
 
-    var preferred = (ov.levels || []).filter(function (l) { return l.status === 'doing'; })[0]
-      || (ov.levels || [])[0];
-    state.levelId = preferred ? preferred.id : null;
-
     loadAll().then(function () {
+      /* ⚠️ 必须在这里重新算一次 TOPICS：
+         各层级的 data/LN.js 是上面 loadAll() 里**动态**加进来的，而 TOPICS 是在
+         本文件被浏览器执行的那一刻就算好的 —— 那时 window.ROADMAP_DATA.levels
+         还不存在，normalizeTopics() 算出来的 levels 是个空数组。
+         不重算的话，单专题模式下整个看板会一个层级都显示不出来（只显示总进度 0/0）。
+         打包版（多专题）没这个问题，因为数据是内联在 app.js 之前的。 */
+      TOPICS = normalizeTopics();
+
+      var ov = curOverview();
+      var preferred = (ov.levels || []).filter(function (l) { return l.status === 'doing'; })[0]
+        || (ov.levels || [])[0];
+      state.levelId = preferred ? preferred.id : null;
+
       flattenLessonsOfTopic(state.topicIndex).forEach(function (l) {
         if (l.status === 'doing') state.open[l.id] = true;
       });
