@@ -1210,7 +1210,7 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'B1',
           title: 'UNION vs UNION ALL 与集合运算',
-          status: 'doing',
+          status: 'done',
           weight: '中',
           estimate: '45 min',
           plan: '搞清 UNION 为什么要去重、去重的代价是什么；顺带看 INTERSECT / EXCEPT（MySQL 8.0.31+）。',
@@ -1270,25 +1270,142 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: 'UNION ALL 12 行 / UNION 10 行（去重掐掉 Alice、Carol 各一份）/ 加列后仍 10 行（说明去重是按 SELECT 列出的所有列整行比）/ 列数不一致报 ERROR 1222 / INTERSECT 2 行 / EXCEPT 6 行',
             errors: '实验2 若也是 12 行，检查是不是把 UNION 写成了 UNION ALL；实验6 报语法错说明 MySQL < 8.0.31，跑 SELECT VERSION() 确认',
-            evidence: '待学生贴出'
+            evidence: '学生逐条执行并贴出全部输出，与预期完全一致：12 / 10 / 10 / ERROR 1222 / 12 行（id 列被静默提升，已用 SHOW CREATE TABLE 证实 varchar(50)）/ INTERSECT 2 行 / EXCEPT 6 行 / UNION ALL + ORDER BY 12 行；EXPLAIN FORMAT=TREE 显示 UNION 有 "Union materialize with deduplication" + "<union temporary>"，UNION ALL 只有 Append + Stream results。'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            'UNION = UNION DISTINCT，本质是「拼接 + 整行去重」；"整行"指 SELECT 里列出的所有列，没列出来的列不参与比较',
+            'UNION ALL 的执行计划是 Append + Stream results（边读边发）；UNION 多出 Union materialize with deduplication + <union temporary> —— 去重靠物化临时表，这就是它慢的来源',
+            '行数：8 + 4 = 12（UNION ALL）→ 10（UNION 掐掉 Alice / Carol 各一份）',
+            '列数不一致报 ERROR 1222；列数一致但类型不同【不报错】，静默取更宽的类型（INT + VARCHAR → varchar(50)，SHOW CREATE TABLE 已证实）',
+            'ORDER BY / LIMIT 只能作用于最外层合并后的结果；写在中间报 ERROR 1064（后面跟不跟 LIMIT 都一样）',
+            '括号子查询里的 ORDER BY：有 LIMIT 才被保留（排序决定取哪几行），无 LIMIT 会被优化器丢掉 —— 不报错，只是白写',
+            'NULL 在 DISTINCT / GROUP BY / UNION 里被视作彼此相等（6 个 NULL 合成 1 行），与 WHERE 里 = NULL 恒不成立不矛盾：前者是「分组」语义，后者是「比较」语义',
+            '同一个字段两种「去重」结果不同：COUNT(DISTINCT bonus) = 2（COUNT 跳过 NULL），SELECT DISTINCT bonus 有 3 行（NULL 自成一组）',
+            'INTERSECT（交集 2 行）/ EXCEPT（差集 6 行）从 MySQL 8.0.31 起才支持；INTERSECT 优先级高于 UNION / EXCEPT',
+            'UNION 只要求两个 SELECT【列数一致】，表结构可以毫不相干：按【位置】配对，列名取第一个 SELECT 的，类型冲突时静默取更宽的那个（实测 SELECT id, name FROM employees UNION SELECT name, salary FROM ex_employees 能跑）'
+          ],
+          pitfalls: [
+            '把「我看得懂输出」当成「这个输出证明了结论」：丙实验里 employees 的物理顺序恰好等于 name 字母序，导致「排序生效」与「排序被丢掉」两种假设输出完全一样 —— 该实验不构成证据，换成 ORDER BY name DESC 才能区分假设',
+            '题目要 UNION ALL 时写成了 UNION，行数从 12 变成 10',
+            '以为「子查询里的 ORDER BY 一定不生效」：准确说法是【没有 LIMIT 才被丢弃】',
+            'NOT IN 思维惯性（A4）在 B1 再现：NULL 在「比较」里是 UNKNOWN，但在「去重 / 分组」里被当成同一堆 —— 同一个 NULL，两套规则，不要互相套用'
+          ],
+          quiz: [
+            {
+              q: '（Q1）把 ex_employees 里 Carol 的 salary 改成 12001 后，SELECT name, salary FROM employees UNION SELECT name, salary FROM ex_employees; 返回几行？为什么和实验 3「加列也照样 10 行」不冲突？',
+              mine: '现在返回11行。因为现在name, salary不是重复的了。实验3里的两行是重复的。',
+              note: '✅ 正确。12 − 1 = 11：只有 Alice 那一行（name + salary 都相同）被判重复；Carol 因为 salary 变成 12001，整行已经不同，不再去重。核心结论：去重比的是 SELECT 里列出的那些列组成的「整行」，不是某一列。'
+            },
+            {
+              q: '（Q2）用 UNION ALL 合并两表人名并按名字排序，写出 SQL；再把 ORDER BY name 放到第一条 SELECT 后面，贴出报错并解释为什么不让这么写',
+              mine: 'select name from employees union select name from ex_employees order by name;（只做了前半：写成了 UNION 而不是 UNION ALL，也没跑故意报错的那条）',
+              note: '❌ 只完成一半：① 写的是 UNION，返回 10 行，题目要的是 UNION ALL（12 行）；② 没跑 ORDER BY 写在中间那条。实测报 ERROR 1064 —— ORDER BY / LIMIT 属于整条语句的最外层，只能作用于合并后的结果集。'
+            },
+            {
+              q: '（Q3）SELECT bonus FROM employees UNION SELECT bonus FROM ex_employees; 返回几行？为什么 6 个 NULL 没变成 6 行？这和 A4 的 WHERE bonus = NULL 恒不成立矛盾吗？',
+              mine: '是返回3行。原因不知道，我不知道他去重的时候是怎么做的运算。',
+              note: '数字对 ✅，原理补讲：去重 / 分组用的不是 = 比较，而是「分组」语义 —— SQL 标准规定 DISTINCT / GROUP BY / UNION 里 NULL 之间视作相等，所有 NULL 归为一组；WHERE 的 = 是谓词求值，与 NULL 比得到 UNKNOWN。一句话：「比较」问的是「相等吗」（答：不知道），「去重 / 分组」问的是「算不算同一堆」（答：算）。'
+            },
+            {
+              q: '（Q2 重问）甲 SELECT … UNION ALL … ORDER BY name LIMIT 3；乙 SELECT … ORDER BY name LIMIT 3 UNION ALL …；丙 (SELECT … ORDER BY name LIMIT 3) UNION ALL (SELECT …)。哪条能跑？各返回几行？丙的 ORDER BY 生效了吗？',
+              mine: '甲丙能跑，乙报错。甲返回3行，丙返回7行。丙的ORDER BY 没生效。',
+              note: '甲乙丙的判断与行数全对 ✅；但「丙的 ORDER BY 没生效」错 —— 有 LIMIT 时排序决定「取哪 3 行」，MySQL 会保留它。他看不出来是因为 employees 恰好按 name 升序插入（物理顺序 = 字母序），该实验区分不了两种假设。用 ORDER BY name DESC 重做对照后理解到位：有 LIMIT + DESC → Henry / Grace / Frank；无 LIMIT + DESC → 顺序原封不动。'
+            },
+            {
+              q: '（Q3 重问）SELECT COUNT(DISTINCT bonus) 与 SELECT COUNT(*) FROM (SELECT DISTINCT bonus FROM employees) t 各是几？为什么不一样？',
+              mine: 'c1是2行，c2是3行。因为c1是count字段，null被丢弃了。c2是count（*），按照行数计算的，不会丢弃null。',
+              note: '✅ 全对。COUNT 家族跳过 NULL（A4 学过）；而 DISTINCT 把 NULL 归为一组，所以子查询先得到 3 行（1000 / 2000 / NULL），COUNT(*) 再数行得 3。同一个字段，两种「去重」对 NULL 的处理相反。'
+            },
+            {
+              q: '（Q2 重问二）甲 SELECT … UNION ALL SELECT … ORDER BY name LIMIT 3；乙 两个 (… ORDER BY name DESC LIMIT 2) 的 UNIONS ALL；丙 在乙后面再加 ORDER BY name。各行数与顺序？为什么乙丙顺序不同？',
+              mine: '（未写逐条判断，直接贴了输出）最后丙加上了ORDER BY name，这个是对两个表合并之后的结果进行排序，而子查询里的order by对子表本身作用。',
+              note: '✅ 通过。三条行数与顺序全对：3 行（Alice / Alice / Bob）、乙 Henry·Grace·Judy·Ivan、丙 Grace·Henry·Ivan·Judy。对丙的解释准确：最外层 ORDER BY 管合并后的整体，子查询的 ORDER BY + LIMIT 只管自己取哪两行。'
+            },
+            {
+              q: '（学生自己提的问题，值得记）1、UNION 可以对两个表结构完全不同的表做合并吧？前提只是列数一致？2、是不是子查询里有 LIMIT，ORDER BY 就生效；没有 LIMIT 就不生效？',
+              mine: '1、union其实是可以对两个表结构完全不同的表进行合并吧？但前提是select的结果的列数要一致？\n2、按照我的理解，就是子查询里有limit，order by就会生效，没有limit，子查询就不生效？',
+              note: '两个理解都对 ✅。① 只要求列数一致，按【位置】配对（不是按列名），列名取第一个 SELECT 的，类型冲突静默取更宽的那个（实测 SELECT id, name FROM employees UNION SELECT name, salary FROM ex_employees 能跑，结果是 id 列 varchar(50) 装着数字和名字）。② 是 MySQL 的实现行为，不是标准保证：派生表 / 括号 query block 里无 LIMIT 的 ORDER BY 会被优化器移除；有 LIMIT 时排序决定取哪些行，所以保留。补充警告：即使子查询的排序被保留，外层不写 ORDER BY 也不能保证最终顺序。'
+            }
+          ]
         },
         {
           id: 'B2',
           title: 'GROUP BY 进阶与分组取每组前 N 名',
-          status: 'todo',
+          status: 'doing',
           weight: '高',
-          estimate: '60 min',
+          estimate: '60 min（分两批：批次一 GROUP BY 严格模式与 WHERE / HAVING 分工；批次二 分组取 TopN）',
           plan: '这是面试手撕题最高频的一类，要能写出多种解法并说清各自代价。',
           concepts: [
             'ONLY_FULL_GROUP_BY 模式下 SELECT 的列必须在 GROUP BY 里或包在聚合函数里',
             '分组取 TopN 的两种写法：自连接 / 窗口函数（D2 学完后回头对比）',
             'HAVING 与 WHERE 的配合顺序'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：造一张"每个部门多名员工"的表，取每个部门薪资前 2 名' },
+          dataset: {
+            label: '实验开始前的数据',
+            note: '批次一直接用 employees 这 8 行做分组（dept 只有 3 个值）。ex_employees 是 B1 建的，本节暂时用不到，放在这里方便对照。注意：employees 的物理顺序恰好等于 name 字母序 —— B1 那个「看不出排序有没有生效」的坑就来自这里。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['dept', 'salary'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ],
+                note: 'RD 3 人 / SALES 3 人 / MKT 2 人。RD 与 SALES 组都是 3 行，所以 HAVING cnt > 2 会留下两组；SALES 组内有 12000 / 9000 / 9500 三个不同薪资，是实验 7 与 8 结果不同的原因'
+              },
+              {
+                name: 'ex_employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                rows: [
+                  [1,  'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [3,  'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [9,  'Ivan',  'RD',    13000, '2018-06-01', null],
+                  [10, 'Judy',  'MKT',   11500, '2020-02-20', null]
+                ],
+                note: 'B1 建的离职员工表。Q1 里的 UPDATE（Carol → 12001）只写在题面里，学生没执行，所以库里仍是 12000'
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab06.sql',
+            sql: [
+              '-- 实验1：起点',
+              'SELECT * FROM employees;',
+              '-- 实验2：分组计数',
+              'SELECT dept, COUNT(*) AS cnt FROM employees GROUP BY dept;',
+              '-- 实验3：故意的 —— SELECT 里出现没分组的列',
+              'SELECT dept, name, COUNT(*) FROM employees GROUP BY dept;  -- ERROR 1055',
+              '-- 实验4：分组列是主键，函数依赖成立 → 放行',
+              'SELECT id, name, dept FROM employees GROUP BY id;',
+              '-- 实验5：分组列换成非唯一列 dept → 还是 1055',
+              'SELECT id, name, dept FROM employees GROUP BY dept;',
+              '-- 实验6：关掉 ONLY_FULL_GROUP_BY 看后果（跑完必须恢复）',
+              'SET @old_mode = @@SESSION.sql_mode;',
+              "SET SESSION sql_mode = '';",
+              'SELECT dept, name, COUNT(*) AS cnt FROM employees GROUP BY dept;  -- 能跑，但 name 不确定',
+              'SET SESSION sql_mode = @old_mode;',
+              '-- 实验7：WHERE 先过滤行，再分组求平均',
+              'SELECT dept, AVG(salary) AS avg_salary FROM employees WHERE salary > 10000 GROUP BY dept;',
+              '-- 实验8：HAVING 先分组求平均，再过滤组（同数据同阈值，SALES 变成 10166.67）',
+              'SELECT dept, AVG(salary) AS avg_salary FROM employees GROUP BY dept HAVING avg_salary > 10000;',
+              '-- 实验9：HAVING 可以直接用 SELECT 的别名',
+              'SELECT dept, COUNT(*) AS cnt FROM employees GROUP BY dept HAVING cnt > 2;',
+              '-- 实验10：故意的 —— WHERE 里写聚合函数',
+              'SELECT dept, COUNT(*) FROM employees WHERE COUNT(*) > 2 GROUP BY dept;  -- ERROR 1111',
+              '-- 实验11：故意的 —— WHERE 里引用 SELECT 的别名',
+              'SELECT dept, COUNT(*) AS cnt FROM employees WHERE cnt > 2 GROUP BY dept;  -- ERROR 1054'
+            ],
+            expected: '实验2 → RD 3 / SALES 3 / MKT 2；实验3 → ERROR 1055（name 不在 GROUP BY 里）；实验4 → 8 行，合法（id 是主键，函数依赖成立）；实验5 → ERROR 1055；实验6 → 能跑但 name 每组只给一行（实测 Alice / Carol / Frank，MySQL 不保证）；实验7 → RD 18333.3333 / SALES 12000 / MKT 11000；实验8 → RD 18333.3333 / SALES 10166.6667 / MKT 10500；实验9 → RD 3 / SALES 3；实验10 → ERROR 1111 Invalid use of group function；实验11 → ERROR 1054 Unknown column "cnt" in "where clause"',
+            errors: '实验3 / 5 若没报错，说明 sql_mode 里没有 ONLY_FULL_GROUP_BY，先 SELECT @@SESSION.sql_mode 确认；实验6 跑完务必恢复 sql_mode，否则后面所有实验的结论都会跟着变',
+            evidence: '待学生贴出'
+          },
           findings: [],
           pitfalls: [],
           quiz: []
