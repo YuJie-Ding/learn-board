@@ -1263,7 +1263,10 @@ window.ROADMAP_DATA.levels.push({
               'SELECT id FROM employees UNION SELECT name FROM ex_employees;                -- 类型不一致，观察 id 列',
               'SELECT name FROM employees INTERSECT SELECT name FROM ex_employees;          -- 2 行',
               'SELECT name FROM employees EXCEPT    SELECT name FROM ex_employees;          -- 6 行',
-              'SELECT name FROM employees UNION ALL SELECT name FROM ex_employees ORDER BY name;  -- 12 行，ORDER BY 写在最后'
+              'SELECT name FROM employees UNION ALL SELECT name FROM ex_employees ORDER BY name;  -- 12 行，ORDER BY 写在最后',
+              '-- 实验8：借 EXPLAIN FORMAT=TREE 看"去重"的代价',
+              'EXPLAIN FORMAT=TREE SELECT name FROM employees UNION     SELECT name FROM ex_employees;  -- Union materialize with deduplication + <union temporary>',
+              'EXPLAIN FORMAT=TREE SELECT name FROM employees UNION ALL SELECT name FROM ex_employees;  -- Append + Stream results'
             ],
             expected: 'UNION ALL 12 行 / UNION 10 行（去重掐掉 Alice、Carol 各一份）/ 加列后仍 10 行（说明去重是按 SELECT 列出的所有列整行比）/ 列数不一致报 ERROR 1222 / INTERSECT 2 行 / EXCEPT 6 行',
             errors: '实验2 若也是 12 行，检查是不是把 UNION 写成了 UNION ALL；实验6 报语法错说明 MySQL < 8.0.31，跑 SELECT VERSION() 确认',
