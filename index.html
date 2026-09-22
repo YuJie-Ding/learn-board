@@ -646,6 +646,10 @@ window.ROADMAP_DATA.levels.push({
           weight: '中',
           estimate: '30 min',
           plan: '理解四个核心概念，以及 container 删除后数据去哪了。',
+          metrics: [
+            '实际用时：2026-09-20 上午 —— L0 整层（4 节）落在 09:01~11:13 之间（含装 Docker、跑 hello-world、容器排错、终端中文问题），合计约 70 min，层级规划是 2 小时',
+            '本节：hello-world 与「容器不见了」的排错，09:01~09:08 + 10:13~10:32'
+          ],
           concepts: [
             'Image 镜像 = 只读模板，Container 容器 = 镜像跑起来的实例',
             '容器状态四种：Created → Running → Exited → Removed',
