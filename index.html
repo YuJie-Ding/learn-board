@@ -1401,15 +1401,54 @@ window.ROADMAP_DATA.levels.push({
               '-- 实验10：故意的 —— WHERE 里写聚合函数',
               'SELECT dept, COUNT(*) FROM employees WHERE COUNT(*) > 2 GROUP BY dept;  -- ERROR 1111',
               '-- 实验11：故意的 —— WHERE 里引用 SELECT 的别名',
-              'SELECT dept, COUNT(*) AS cnt FROM employees WHERE cnt > 2 GROUP BY dept;  -- ERROR 1054'
+              'SELECT dept, COUNT(*) AS cnt FROM employees WHERE cnt > 2 GROUP BY dept;  -- ERROR 1054',
+              '-- ===== 批次二：分组取每组前 N 名 =====',
+              'SELECT dept, MAX(salary) AS max_salary FROM employees GROUP BY dept;  -- 3 行：每组只给 1 个值',
+              'SELECT dept, name, MAX(salary) FROM employees GROUP BY dept;  -- ERROR 1055',
+              '-- 实验14：关掉严格模式后的「事故现场」（跑完必须恢复）',
+              'SET SESSION sql_mode = \'\';  SELECT dept, name, MAX(salary) FROM employees GROUP BY dept;  -- RD | Alice | 22000（错配）',
+              '-- 实验15：写法 A 计数法（比 e1 薪水高的同组人数 < 2）',
+              'SELECT e1.dept, e1.name, e1.salary FROM employees e1 WHERE (SELECT COUNT(*) FROM employees e2 WHERE e2.dept = e1.dept AND e2.salary > e1.salary) < 2 ORDER BY e1.dept, e1.salary DESC;  -- 6 行',
+              '-- 实验16：写法 B 自连接（>= 且 COUNT(*) <= 2）',
+              'SELECT e1.dept, e1.name, e1.salary FROM employees e1 JOIN employees e2 ON e1.dept = e2.dept AND e2.salary >= e1.salary GROUP BY e1.id HAVING COUNT(*) <= 2 ORDER BY e1.dept, e1.salary DESC;  -- 6 行',
+              '-- 实验17：故意的 —— 改成 > + INNER JOIN，每组第 1 名会整行消失',
+              'SELECT e1.dept, e1.name, e1.salary FROM employees e1 JOIN employees e2 ON e1.dept = e2.dept AND e2.salary > e1.salary GROUP BY e1.id HAVING COUNT(*) < 2 ORDER BY e1.dept, e1.salary DESC;  -- 只剩 3 行（第 2 名）',
+              '-- 实验17b：正确写法 LEFT JOIN + COUNT(e2.id)',
+              'SELECT e1.dept, e1.name, e1.salary FROM employees e1 LEFT JOIN employees e2 ON e1.dept = e2.dept AND e2.salary > e1.salary GROUP BY e1.id HAVING COUNT(e2.id) < 2 ORDER BY e1.dept, e1.salary DESC;  -- 6 行',
+              '-- 实验18：写法 C 窗口函数（D2 正式学）',
+              'SELECT t.dept, t.name, t.salary FROM (SELECT dept, name, salary, ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) AS rn FROM employees) t WHERE t.rn <= 2 ORDER BY t.dept, t.salary DESC;  -- 6 行',
+              '-- 实验19：边界 < 1 → 3 行；< 3 → 8 行'
             ],
             expected: '实验2 → RD 3 / SALES 3 / MKT 2；实验3 → ERROR 1055（name 不在 GROUP BY 里）；实验4 → 8 行，合法（id 是主键，函数依赖成立）；实验5 → ERROR 1055；实验6 → 能跑但 name 每组只给一行（实测 Alice / Carol / Frank，MySQL 不保证）；实验7 → RD 18333.3333 / SALES 12000 / MKT 11000；实验8 → RD 18333.3333 / SALES 10166.6667 / MKT 10500；实验9 → RD 3 / SALES 3；实验10 → ERROR 1111 Invalid use of group function；实验11 → ERROR 1054 Unknown column "cnt" in "where clause"',
-            errors: '实验3 / 5 若没报错，说明 sql_mode 里没有 ONLY_FULL_GROUP_BY，先 SELECT @@SESSION.sql_mode 确认；实验6 跑完务必恢复 sql_mode，否则后面所有实验的结论都会跟着变',
-            evidence: '待学生贴出'
+            errors: '实验3 / 5 若没报错，说明 sql_mode 里没有 ONLY_FULL_GROUP_BY，先 SELECT @@SESSION.sql_mode 确认；实验6 跑完务必恢复 sql_mode，否则后面所有实验的结论都会跟着变；实验17 只剩 3 行是故意的，换成 LEFT JOIN + COUNT(e2.id) 才是对的；实验16 的 COUNT(*) 包含自己，所以配 >=；实验17b 必须写 COUNT(e2.id) 而不是 COUNT(*)，否则 N = 1 时会出错',
+            evidence: '批次一：学生贴出全部输出与预期一致（实验3 报 1055 / 实验4 8 行 / 关模式后 name 给出 Alice·Carol·Frank / 恢复后 sql_mode 含 ONLY_FULL_GROUP_BY / 实验11 报 1054），Q1、Q2 也都答对。批次二：待学生贴出'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            'ONLY_FULL_GROUP_BY：GROUP BY 之后，SELECT 的列要么是分组列，要么被聚合函数包住 —— 否则 ERROR 1055（MySQL 8.0 默认开启）',
+            '函数依赖例外：分组列是主键（或唯一）时，组里只可能有 1 行，其他列的值唯一确定 → 放行（所以 GROUP BY id 可以 SELECT name, dept）',
+            '关掉 ONLY_FULL_GROUP_BY 后，SELECT dept, name, MAX(salary) 得到了 RD | Alice | 22000 —— 22000 是 Eve 的薪水，name 和 MAX 不是同一行。这是最典型的「不报错的错」',
+            'WHERE 里既不能写聚合函数（ERROR 1111，A2 学过），也不能引用 SELECT 的别名（ERROR 1054，本节补上）；HAVING 两者都可以，因为 HAVING 在 SELECT 之后才执行',
+            '分组取 TopN 的正确写法一共三种（本节实测结果完全一致，各 6 行）：① 计数法相关子查询 ② 自连接 + GROUP BY 主键 + HAVING 计数 ③ 窗口函数 ROW_NUMBER（D2 正式学）',
+            '自连接里 ON 写 >= 时自己会和自己配上一行，所以 COUNT(*) 包含自己 → 前 N 名 = COUNT(*) <= N；写 > 则每组第 1 名在 INNER JOIN 里找不到匹配，整行消失（实测只剩 3 行）',
+            'LEFT JOIN + COUNT(e2.id) 是 > 的正确搭档：第 1 名保留一行（e2 侧全 NULL），COUNT(e2.id) = 0'  
+          ],
+          pitfalls: [
+            '（学生）交互会话里把 SET @old_mode = @@SESSION.sql_mode; 敲成了 SET @old_mode; → ERROR 1064。取值要用 SELECT @old_mode;，SET 是赋值语句',
+            '（AI）批次一最初把 A2 已学过的 WHERE / HAVING 又讲了一遍，被学生当场指出「where 和 having 之前学过了吧？」—— 备课时先比对已 done 课的 concepts，避免重复',
+            '自连接写 TopN 时只盯着 HAVING 的条件，忘了 INNER JOIN 可能先把行丢掉：> 与 >= 的切换要先想 JOIN 会不会丢行'
+          ],
+          quiz: [
+            {
+              q: '（Q1）实验3（GROUP BY dept + SELECT dept, name）报错，实验4（GROUP BY id + SELECT id, name, dept）放行。决定命运的那个差别是什么？',
+              mine: 'Q1:区别在于实验4用了id做分组，id是主键，唯一的，每组必然只有1条数据，所以可以放行。',
+              note: '✅ 正确，一句话说到了根上：id 是主键 → 组里只有 1 行 → 其他列的值不可能是多义的。这就是「函数依赖」。'
+            },
+            {
+              q: '（Q2，A2 抽查）SELECT dept, AVG(salary) FROM employees WHERE AVG(salary) > 15000 GROUP BY dept; 会报什么错？为什么？正确写法是什么？',
+              mine: 'Q2:WHERE AVG(salary) > 15000 会造成报错。where不能用聚合函数。应该写成SELECT dept, AVG(salary) FROM employees GROUP BY dept  HAVING AVG(salary) > 15000;',
+              note: '✅ 正确，A2 的知识还在。WHERE 在分组之前执行，那时还没有「组」，所以 ERROR 1111 Invalid use of group function；按分组结果筛选要用 HAVING。'
+            }
+          ]
         }
       ]
     },
