@@ -1331,7 +1331,7 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'B2',
           title: 'GROUP BY 进阶与分组取每组前 N 名',
-          status: 'doing',
+          status: 'done',
           weight: '高',
           estimate: '60 min（分两批：批次一 GROUP BY 严格模式与 WHERE / HAVING 分工；批次二 分组取 TopN）',
           plan: '这是面试手撕题最高频的一类，要能写出多种解法并说清各自代价。',
@@ -1423,7 +1423,7 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: '实验2 → RD 3 / SALES 3 / MKT 2；实验3 → ERROR 1055（name 不在 GROUP BY 里）；实验4 → 8 行，合法（id 是主键，函数依赖成立）；实验5 → ERROR 1055；实验6 → 能跑但 name 每组只给一行（实测 Alice / Carol / Frank，MySQL 不保证）；实验7 → RD 18333.3333 / SALES 12000 / MKT 11000；实验8 → RD 18333.3333 / SALES 10166.6667 / MKT 10500；实验9 → RD 3 / SALES 3；实验10 → ERROR 1111 Invalid use of group function；实验11 → ERROR 1054 Unknown column "cnt" in "where clause"；【批次二】实验12 → 3 行（每组只给 1 个值）；实验13 → ERROR 1055；实验14 → RD | Alice | 22000（名字与最大值错配，且不报错）；实验15 / 16 / 17b / 18 → 各 6 行；实验17 → 只剩 3 行（Frank / Bob / Henry，每组第 1 名失踪）；实验19 → < 1 得 3 行、< 3 得 8 行',
             errors: '实验3 / 5 若没报错，说明 sql_mode 里没有 ONLY_FULL_GROUP_BY，先 SELECT @@SESSION.sql_mode 确认；实验6 跑完务必恢复 sql_mode，否则后面所有实验的结论都会跟着变；实验17 只剩 3 行是故意的，换成 LEFT JOIN + COUNT(e2.id) 才是对的；实验16 的 COUNT(*) 包含自己，所以配 >=；实验17b 必须写 COUNT(e2.id) 而不是 COUNT(*)，否则 N = 1 时会出错',
-            evidence: '批次一：学生贴出全部输出与预期一致（实验3 报 1055 / 实验4 8 行 / 关模式后 name 给出 Alice·Carol·Frank / 恢复后 sql_mode 含 ONLY_FULL_GROUP_BY / 实验11 报 1054），Q1、Q2 也都答对。批次二：待学生贴出'
+            evidence: '批次一 + 批次二：学生贴出全部输出，与预期逐条一致（12 → 3 行 / 13 → 1055 / 14 → RD | Alice | 22000 错配 / 15·16·17b·18 → 各 6 行 / 17 → 3 行 / 19 → 3 行、8 行）。Q1~Q3 全对；Q2 是 AI 出题时说错（「一种改 HAVING 条件」在 INNER JOIN + > 的框架下救不回第一名），学生反过来纠正了 AI，理由准确：JOIN 产出行，WHERE / HAVING 只能筛行、不能造行。'
           },
           findings: [
             'ONLY_FULL_GROUP_BY：GROUP BY 之后，SELECT 的列要么是分组列，要么被聚合函数包住 —— 否则 ERROR 1055（MySQL 8.0 默认开启）',
@@ -1449,6 +1449,26 @@ window.ROADMAP_DATA.levels.push({
               q: '（Q2，A2 抽查）SELECT dept, AVG(salary) FROM employees WHERE AVG(salary) > 15000 GROUP BY dept; 会报什么错？为什么？正确写法是什么？',
               mine: 'Q2:WHERE AVG(salary) > 15000 会造成报错。where不能用聚合函数。应该写成SELECT dept, AVG(salary) FROM employees GROUP BY dept  HAVING AVG(salary) > 15000;',
               note: '✅ 正确，A2 的知识还在。WHERE 在分组之前执行，那时还没有「组」，所以 ERROR 1111 Invalid use of group function；按分组结果筛选要用 HAVING。'
+            },
+            {
+              q: '（Q1）实验 14-3 跑通了但结果是错的，错在哪？为什么 name 和 MAX(salary) 能对不上？',
+              mine: 'Q1:max取得是一组的最大值，但是name是从这一组只取一行，而且是看运气的，并不一定是max所在的那一行。',
+              note: '✅ 正确。MAX 是「组」一级的计算（每组算出一个值），name 是「行」一级的取值（从组里挑一行）—— 两者发生在不同的层级，MySQL 没有义务让它们来自同一行，而且它不会报错。'
+            },
+            {
+              q: '（Q2）实验 17 只剩 3 行：丢掉的是哪些行？为什么？有哪两种修法？',
+              mine: 'Q2:只剩3行，丢的是每组的第一名，因为join比较后，第一名在比较之后没有比它更大的，就一行都不剩了，结果也就不会有他。改成left join，编程实验17b就可以。但是我认为改having条件不管用，因为join后的数据里，第一名就已经没了，再怎么改条件也加不回来。',
+              note: '✅ 判断完全正确，而且纠正了 AI 的题面错误：AI 写「一种改 JOIN 类型、一种改 HAVING 条件」，但在 INNER JOIN + > 的框架下改 HAVING 救不回第一行 —— JOIN 负责产出行，WHERE / HAVING 只能在已有的行里筛，不能凭空造行。真正的两种修法：① ON 从 > 改成 >=（HAVING 跟着从 < 2 改成 <= 2）；② 换 LEFT JOIN + COUNT(e2.id) < 2。'
+            },
+            {
+              q: '（Q3）实验 16 的 SELECT 里有三个列都不在 GROUP BY 里，为什么不报 1055？',
+              mine: 'Q3:没报是因为GROUP BY e1.id 是主键唯一值。实际上每组是有多个数据，但用select也都是e1的列，因此分组里每行都是一样的。',
+              note: '✅ 正确。GROUP BY e1.id（主键）后，组里只有 1 个 id 值，SELECT 的三列又都是 e1 的列 → 被 e1.id 唯一决定 → 函数依赖成立。延伸：混进 e2 的列就会报 1055（实测 SELECT e1.dept, e1.name, e2.name ... GROUP BY e1.id → ERROR 1055），因为 e2.name 不由 e1.id 决定。'
+            },
+            {
+              q: '（学生自己提的问题，直接敲开了 C1 的门）为什么 ON e1.dept = e2.dept 时 INNER 和 LEFT 结果一样，加上 AND e2.salary > e1.salary 后就不一样了？',
+              mine: '我执行 SELECT ... FROM employees e1 JOIN employees e2 ON e1.dept = e2.dept; 和 LEFT JOIN 同名条件，出来的结果似乎是一样的，那为什么加上 AND e2.salary > e1.salary，结果就不一样了？',
+              note: '实测：ON 只要求 dept 相等时 22 = 22（完全一样，因为每个员工都能在本部门找到同事）；加上薪水条件后 7 ≠ 10。原因：LEFT JOIN 与 INNER JOIN 的差别【只存在于匹配不上的左表行】—— 没有这种行时，两者输出完全相同。最干净的对照：ON 里加一个恒不成立的条件（AND e2.salary > 100000），INNER 得 0 行、LEFT 得 8 行。提醒他：这跟 B1「丙的 ORDER BY 看不出生效」是同一类毛病 —— 实验要能区分假设。'
             }
           ]
         }
@@ -1464,7 +1484,7 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'C1',
           title: 'JOIN 基础：INNER / LEFT / RIGHT',
-          status: 'todo',
+          status: 'doing',
           weight: '中',
           estimate: '45 min',
           plan: '搞清 JOIN 的驱动关系，以及笛卡尔积是怎么炸出来的。',
@@ -1473,7 +1493,85 @@ window.ROADMAP_DATA.levels.push({
             '忘记写 ON 条件 = 笛卡尔积（行数 = 左表行数 × 右表行数）',
             'ON 和 WHERE 在 LEFT JOIN 里的效果不同（这是个高频陷阱）'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：建 departments 表，故意留一个没有员工的部门 + 一个没有部门的员工' },
+          dataset: {
+            label: '实验开始前的数据（departments 由本节实验 1 建出来）',
+            note: '本节的核心道具是 HR（人力资源部）—— 它在 departments 里，但没有任何员工。没有它，INNER 和 LEFT 的输出会长得一模一样（B2 那个「看不出差别」的坑会重演）。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ]
+              },
+              {
+                name: 'ex_employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                rows: [
+                  [1,  'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [3,  'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [9,  'Ivan',  'RD',    13000, '2018-06-01', null],
+                  [10, 'Judy',  'MKT',   11500, '2020-02-20', null]
+                ]
+              },
+              {
+                name: 'departments',
+                columns: ['dept', 'dept_name', 'budget'],
+                focus: ['dept'],
+                rows: [
+                  ['RD',    '研发部',     500000],
+                  ['SALES', '销售部',     300000],
+                  ['MKT',   '市场部',     200000],
+                  ['HR',    '人力资源部', 150000]
+                ],
+                note: 'HR 一个员工都没有 —— 它是 LEFT JOIN 的用武之地；FIN 不存在（实验 11 会临时造一个）',
+                ddl: "CREATE TABLE `departments` (\n  `dept` varchar(20) NOT NULL,\n  `dept_name` varchar(50) DEFAULT NULL,\n  `budget` int DEFAULT NULL,\n  PRIMARY KEY (`dept`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab07.sql',
+            sql: [
+              '-- 实验1：建 departments（HR 故意没有员工）',
+              "CREATE TABLE departments (dept VARCHAR(20) PRIMARY KEY, dept_name VARCHAR(50), budget INT); INSERT INTO departments VALUES ('RD','研发部',500000),('SALES','销售部',300000),('MKT','市场部',200000),('HR','人力资源部',150000);",
+              '-- 实验2：INNER JOIN',
+              'SELECT e.name, e.dept, d.dept_name FROM employees e JOIN departments d ON e.dept = d.dept ORDER BY e.id;  -- 8 行，HR 消失',
+              '-- 实验3：departments 在左',
+              'SELECT d.dept, d.dept_name, e.name FROM departments d LEFT JOIN employees e ON d.dept = e.dept ORDER BY d.dept, e.id;  -- 9 行，HR 的 e.name 为 NULL',
+              '-- 实验4：反过来，employees 在左',
+              'SELECT e.name, e.dept, d.dept_name FROM employees e LEFT JOIN departments d ON e.dept = d.dept ORDER BY e.id;  -- 8 行，HR 又消失',
+              '-- 实验5：行数对照',
+              'SELECT (SELECT COUNT(*) FROM departments d JOIN employees e ON d.dept = e.dept) AS inner_cnt, (SELECT COUNT(*) FROM departments d LEFT JOIN employees e ON d.dept = e.dept) AS left_cnt;  -- 8 / 9',
+              '-- 实验6：RIGHT JOIN（与实验3等价）',
+              'SELECT d.dept, d.dept_name, e.name FROM employees e RIGHT JOIN departments d ON e.dept = d.dept ORDER BY d.dept, e.id;  -- 9 行',
+              '-- 实验7：部门人数（含 0 人的）',
+              'SELECT d.dept, d.dept_name, COUNT(e.id) AS headcount FROM departments d LEFT JOIN employees e ON d.dept = e.dept GROUP BY d.dept, d.dept_name ORDER BY d.dept;  -- HR 0 / MKT 2 / RD 3 / SALES 3',
+              '-- 实验8：故意的 —— COUNT(*)',
+              'SELECT d.dept, d.dept_name, COUNT(*) AS headcount_wrong FROM departments d LEFT JOIN employees e ON d.dept = e.dept GROUP BY d.dept, d.dept_name ORDER BY d.dept;  -- HR 变成 1（错）',
+              '-- 实验9：过滤条件写 WHERE —— LEFT JOIN 退化成 INNER JOIN',
+              'SELECT d.dept, e.name FROM departments d LEFT JOIN employees e ON d.dept = e.dept WHERE e.salary > 10000 ORDER BY d.dept;  -- 5 行，HR 消失',
+              '-- 实验10：过滤条件写 ON —— HR 保留',
+              'SELECT d.dept, e.name FROM departments d LEFT JOIN employees e ON d.dept = e.dept AND e.salary > 10000 ORDER BY d.dept, e.id;  -- 6 行，HR 一行（name 为 NULL）',
+              '-- 实验11：造一个「没有部门」的员工 Ivy（dept = FIN）',
+              "INSERT INTO employees (id, name, dept, salary, hire_date, bonus) VALUES (11,'Ivy','FIN',13000,'2024-03-01',NULL); SELECT e.name, e.dept, d.dept_name FROM employees e LEFT JOIN departments d ON e.dept = d.dept ORDER BY e.id;  -- 9 行，Ivy 的 dept_name 为 NULL",
+              '-- 实验12：带着 Ivy 再统计部门人数',
+              'SELECT d.dept, d.dept_name, COUNT(e.id) AS headcount FROM departments d LEFT JOIN employees e ON d.dept = e.dept GROUP BY d.dept, d.dept_name ORDER BY d.dept;  -- 仍是 4 行，FIN 不出现',
+              '-- 收尾：删掉 Ivy 并重置自增',
+              'DELETE FROM employees WHERE id = 11; ALTER TABLE employees AUTO_INCREMENT = 9;',
+              '-- 实验13：故意的 —— 忘记写 ON 条件',
+              'SELECT COUNT(*) AS cartesian_cnt FROM employees e JOIN departments d;  -- 32 行（8 × 4）'
+            ],
+            expected: '实验2 → 8 行（HR 消失）；实验3 → 9 行（HR 那行 e.name 为 NULL）；实验4 → 8 行（HR 又没了，因为左表换成了 employees）；实验5 → inner_cnt 8 / left_cnt 9；实验6 → 9 行，与实验3 等价；实验7 → HR 0 / MKT 2 / RD 3 / SALES 3；实验8 → HR 变成 1（错）；实验9 → 5 行，HR 消失；实验10 → 6 行，HR 保留；实验11 → 9 行，Ivy 的 dept_name 为 NULL；实验12 → 仍 4 行，FIN 不出现；实验13 → 32 行',
+            errors: '实验3 若也是 8 行，检查是不是把 LEFT JOIN 写成了 JOIN；实验8 若 HR 是 0，说明你写的是 COUNT(e.id)；实验10 若 HR 消失，说明条件写到了 WHERE 里；实验13 若不是 32 行，先 SELECT COUNT(*) FROM employees / departments 确认两张表行数',
+            evidence: '待学生贴出'
+          },
           findings: [],
           pitfalls: [],
           quiz: []
