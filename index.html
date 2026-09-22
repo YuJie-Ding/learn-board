@@ -862,6 +862,27 @@ window.ROADMAP_DATA.levels.push({
             'WHERE 在 SELECT 之前执行 → 别名此时不存在',
             'ORDER BY 在 SELECT 之后执行 → 别名可以用'
           ],
+          dataset: {
+            label: '实验开始前的数据（employees）',
+            note: 'A1 / A2 时这张表**还没有 bonus 列** —— 那是 A3 用 ALTER TABLE 加的。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01'],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15'],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10'],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20'],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01'],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01'],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31'],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01']
+                ],
+                ddl: "CREATE TABLE `employees` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `name` varchar(20) DEFAULT NULL,\n  `dept` varchar(20) DEFAULT NULL,\n  `salary` int DEFAULT NULL,\n  `hire_date` date DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
           experiment: {
             file: 'lab01.sql',
             sql: [
@@ -906,6 +927,26 @@ window.ROADMAP_DATA.levels.push({
             'HAVING 在 GROUP BY 之后执行，过滤的是分组后的结果',
             '聚合函数（SUM / AVG / COUNT）只在分组阶段之后才有值，所以不能出现在 WHERE'
           ],
+          dataset: {
+            label: '实验数据（employees，数据同 A1，本节没动表）',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01'],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15'],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10'],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20'],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01'],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01'],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31'],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01']
+                ],
+                note: '按 dept 分组：RD 3 人（均值 18333.3333）· SALES 3 人（10166.6667）· MKT 2 人（10500）'
+              }
+            ]
+          },
           experiment: {
             file: 'lab02.sql',
             sql: [
@@ -954,6 +995,29 @@ window.ROADMAP_DATA.levels.push({
             '= NULL 永远不成立，要用 IS NULL；<> 也过滤不掉 NULL 行',
             '聚合函数跳过 NULL：COUNT(字段) 数的是非 NULL 个数，AVG 的分母也是非 NULL 个数'
           ],
+          dataset: {
+            label: '实验数据（employees，bonus 列已赋值）',
+            note: '本节开头先用 `ADD COLUMN bonus INT NULL` 加列（此时 8 行全是 NULL），再用 UPDATE 给 RD 的三个人和 Carol 赋值。实验 1~5 跑在下面这份数据上。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['bonus'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ],
+                note: '4 行 bonus 为 NULL：Dave / Frank / Grace / Henry',
+                ddl: "CREATE TABLE `employees` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `name` varchar(20) DEFAULT NULL,\n  `dept` varchar(20) DEFAULT NULL,\n  `salary` int DEFAULT NULL,\n  `hire_date` date DEFAULT NULL,\n  `bonus` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
           experiment: {
             file: 'lab03.sql',
             sql: [
@@ -1013,6 +1077,28 @@ window.ROADMAP_DATA.levels.push({
             'NOT IN 的展开式含 <> NULL，结果是 UNKNOWN，AND 之后整个条件永远不为 TRUE → 一行都返回不了',
             'InnoDB 不存行数，所以 COUNT 必须扫数据（L5 展开，Week 2 用 100 万行验证）'
           ],
+          dataset: {
+            label: '实验数据（employees，同 A3 结束时的状态）',
+            note: '本节不再改表，直接在上面这份数据上跑。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['bonus'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ],
+                note: '非 NULL 的 bonus 只有 4 个：2000 / 2000 / 1000 / 2000（正好跟 4 个 NULL 错开，这是故意的）'
+              }
+            ]
+          },
           experiment: {
             file: 'lab04.sql',
             sql: [
@@ -1097,6 +1183,39 @@ window.ROADMAP_DATA.levels.push({
             'UNION 去重的实现代价：需要临时表或排序，数据量大时很慢',
             '列数必须一致、类型会做隐式转换'
           ],
+          dataset: {
+            label: '实验开始前的数据（两张表）',
+            note: '`ex_employees` 是本节第 0-1 / 0-2 步建出来并插入的；`employees` 保持 A3 结束时的状态。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ]
+              },
+              {
+                name: 'ex_employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['name'],
+                rows: [
+                  [1,  'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [3,  'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [9,  'Ivan',  'RD',    13000, '2018-06-01', null],
+                  [10, 'Judy',  'MKT',   11500, '2020-02-20', null]
+                ],
+                note: 'Alice / Carol 与 employees 重复（但 id 相同，这一列也是重复的），Ivan / Judy 是新人 —— 这就是 UNION 去重的对象',
+                ddl: "CREATE TABLE `ex_employees` (\n  `id` int NOT NULL,\n  `name` varchar(50) DEFAULT NULL,\n  `dept` varchar(20) DEFAULT NULL,\n  `salary` int DEFAULT NULL,\n  `hire_date` date DEFAULT NULL,\n  `bonus` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
           experiment: {
             file: 'lab05.sql',
             sql: [
