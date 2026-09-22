@@ -1336,9 +1336,10 @@ window.ROADMAP_DATA.levels.push({
           estimate: '60 min（分两批：批次一 GROUP BY 严格模式与 WHERE / HAVING 分工；批次二 分组取 TopN）',
           plan: '这是面试手撕题最高频的一类，要能写出多种解法并说清各自代价。',
           concepts: [
-            'ONLY_FULL_GROUP_BY 模式下 SELECT 的列必须在 GROUP BY 里或包在聚合函数里',
+            'ONLY_FULL_GROUP_BY：SELECT 的列必须在 GROUP BY 里或包在聚合函数里（本节新增）',
+            '函数依赖：分组列是主键（或唯一）时，其他列不写进 GROUP BY 也合法 —— MySQL 8.0 的宽容',
             '分组取 TopN 的两种写法：自连接 / 窗口函数（D2 学完后回头对比）',
-            'HAVING 与 WHERE 的配合顺序'
+            '（A2 已学、本节只抽查）WHERE 过滤行 / HAVING 过滤组；本节补的新点是 WHERE 里连别名也不能用（ERROR 1054）'
           ],
           dataset: {
             label: '实验开始前的数据',
