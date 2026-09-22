@@ -893,6 +893,9 @@ window.ROADMAP_DATA.levels.push({
           weight: '高',
           estimate: '45 min',
           plan: '弄懂"书写顺序 ≠ 执行顺序"，并用它解释 WHERE 里为什么用不了别名。',
+          metrics: [
+            '实际用时：无独立记录 —— A1 / A2 / A3 是 09-20 上午连着上的（11:17~11:58），三节含实验与检验合计约 41 min，而三节规划合计 150 min'
+          ],
           concepts: [
             '执行顺序：FROM → JOIN → ON → WHERE → GROUP BY → HAVING → SELECT → DISTINCT → ORDER BY → LIMIT',
             'WHERE 在 SELECT 之前执行 → 别名此时不存在',
@@ -958,6 +961,10 @@ window.ROADMAP_DATA.levels.push({
           weight: '高',
           estimate: '45 min',
           plan: '搞清 WHERE 过滤"行"、HAVING 过滤"组"，以及聚合函数为什么不能进 WHERE。',
+          metrics: [
+            '实际用时：11:17 开讲 → 11:32 贴出实验输出 · 约 17 min（规划 45 min，0.4×）',
+            '检验：2 题全过（无重问）'
+          ],
           concepts: [
             'WHERE 在 GROUP BY 之前执行，过滤的是原始的行',
             'HAVING 在 GROUP BY 之后执行，过滤的是分组后的结果',
@@ -1026,6 +1033,10 @@ window.ROADMAP_DATA.levels.push({
           weight: '高',
           estimate: '60 min',
           plan: 'NULL 不是 0 也不是空字符串，而是"未知"。搞清它带来的三个后果。',
+          metrics: [
+            '实际用时：11:32 → 11:49 贴出实验输出，11:58 收尾 · 约 17 min（规划 60 min，0.3×）—— 三节里最快的一节',
+            '检验：1 题答错（把 NULL 与空字符串 / 0 混为一谈）后纠正通过'
+          ],
           concepts: [
             'NULL = 未知，所以 SQL 是 TRUE / FALSE / UNKNOWN 三值逻辑，WHERE 只保留 TRUE 的行',
             '= NULL 永远不成立，要用 IS NULL；<> 也过滤不掉 NULL 行',
@@ -1108,6 +1119,10 @@ window.ROADMAP_DATA.levels.push({
           weight: '高',
           estimate: '45 min',
           plan: '看清 COUNT(*) / COUNT(1) / COUNT(字段) 的语义差别，以及 NOT IN 一碰 NULL 就整个失效。',
+          metrics: [
+            '实际用时：2026-09-21 13:08~13:45 · 约 37 min（规划 45 min，0.8×）',
+            '检验：6 题，1 道未答出（Q2）后重问才通过'
+          ],
           concepts: [
             'COUNT(*) 和 COUNT(1) 语义完全相同（数行）；COUNT(字段) 数的是非 NULL 值',
             'NOT IN 的展开式含 <> NULL，结果是 UNKNOWN，AND 之后整个条件永远不为 TRUE → 一行都返回不了',
@@ -1214,6 +1229,10 @@ window.ROADMAP_DATA.levels.push({
           weight: '中',
           estimate: '45 min',
           plan: '搞清 UNION 为什么要去重、去重的代价是什么；顺带看 INTERSECT / EXCEPT（MySQL 8.0.31+）。',
+          metrics: [
+            '实际用时：2026-09-21 13:51 开讲（跨夜会话，当天结束时间无记录）+ 2026-09-22 12:29~13:19 检验 · 50 min（规划 45 min）',
+            '检验：跨 3 轮共 7 题，2 处出错重问（Q2 只答一半、丙的 ORDER BY 误判为未生效）'
+          ],
           concepts: [
             'UNION 会去重（隐含排序 / 临时表），UNION ALL 直接拼接',
             'UNION 去重的实现代价：需要临时表或排序，数据量大时很慢',
@@ -1335,6 +1354,11 @@ window.ROADMAP_DATA.levels.push({
           weight: '高',
           estimate: '60 min（分两批：批次一 GROUP BY 严格模式与 WHERE / HAVING 分工；批次二 分组取 TopN）',
           plan: '这是面试手撕题最高频的一类，要能写出多种解法并说清各自代价。',
+          metrics: [
+            '实际用时：2026-09-22 13:19~14:43 · 约 84 min（规划 60 min，1.4×）',
+            '其中约 15 min 是 AI 重复讲 A2 已学内容造成的浪费（学生指出后中断）',
+            '检验：批次一 2 题全过；批次二 3 题全过（其中 1 题纠正了 AI 出错的题面）'
+          ],
           concepts: [
             'ONLY_FULL_GROUP_BY：SELECT 的列必须在 GROUP BY 里或包在聚合函数里（本节新增）',
             '函数依赖：分组列是主键（或唯一）时，其他列不写进 GROUP BY 也合法 —— MySQL 8.0 的宽容',
