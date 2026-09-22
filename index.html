@@ -286,6 +286,7 @@ code, pre, .mono { font-family: var(--mono); }
 .badge.w-low  { background: var(--todo-dim); color: var(--text-mute); border-color: var(--border); }
 
 .meta { font-size: 11.5px; color: var(--text-mute); white-space: nowrap; }
+.meta .actual { color: #7ee2a4; }
 .caret { color: var(--text-mute); font-size: 12px; width: 14px; text-align: center; }
 
 .lesson-body {
@@ -645,6 +646,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '中',
           estimate: '30 min',
+          actual: '≈70 min（L0 整层）',
           plan: '理解四个核心概念，以及 container 删除后数据去哪了。',
           metrics: [
             '实际用时：2026-09-20 上午 —— L0 整层（4 节）落在 09:01~11:13 之间（含装 Docker、跑 hello-world、容器排错、终端中文问题），合计约 70 min，层级规划是 2 小时',
@@ -896,6 +898,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '高',
           estimate: '45 min',
+          actual: '≈15 min（A1~A3 共 41）',
           plan: '弄懂"书写顺序 ≠ 执行顺序"，并用它解释 WHERE 里为什么用不了别名。',
           metrics: [
             '实际用时：无独立记录 —— A1 / A2 / A3 是 09-20 上午连着上的（11:17~11:58），三节含实验与检验合计约 41 min，而三节规划合计 150 min'
@@ -964,6 +967,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '高',
           estimate: '45 min',
+          actual: '17 min（0.4×）',
           plan: '搞清 WHERE 过滤"行"、HAVING 过滤"组"，以及聚合函数为什么不能进 WHERE。',
           metrics: [
             '实际用时：11:17 开讲 → 11:32 贴出实验输出 · 约 17 min（规划 45 min，0.4×）',
@@ -1036,6 +1040,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '高',
           estimate: '60 min',
+          actual: '17 min（0.3×）',
           plan: 'NULL 不是 0 也不是空字符串，而是"未知"。搞清它带来的三个后果。',
           metrics: [
             '实际用时：11:32 → 11:49 贴出实验输出，11:58 收尾 · 约 17 min（规划 60 min，0.3×）—— 三节里最快的一节',
@@ -1122,6 +1127,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '高',
           estimate: '45 min',
+          actual: '37 min（0.8×）',
           plan: '看清 COUNT(*) / COUNT(1) / COUNT(字段) 的语义差别，以及 NOT IN 一碰 NULL 就整个失效。',
           metrics: [
             '实际用时：2026-09-21 13:08~13:45 · 约 37 min（规划 45 min，0.8×）',
@@ -1232,6 +1238,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '中',
           estimate: '45 min',
+          actual: '≥50 min（跨两天）',
           plan: '搞清 UNION 为什么要去重、去重的代价是什么；顺带看 INTERSECT / EXCEPT（MySQL 8.0.31+）。',
           metrics: [
             '实际用时：2026-09-21 13:51 开讲（跨夜会话，当天结束时间无记录）+ 2026-09-22 12:29~13:19 检验 · 50 min（规划 45 min）',
@@ -1357,6 +1364,7 @@ window.ROADMAP_DATA.levels.push({
           status: 'done',
           weight: '高',
           estimate: '60 min（分两批：批次一 GROUP BY 严格模式与 WHERE / HAVING 分工；批次二 分组取 TopN）',
+          actual: '84 min（1.4×）',
           plan: '这是面试手撕题最高频的一类，要能写出多种解法并说清各自代价。',
           metrics: [
             '实际用时：2026-09-22 13:19~14:43 · 约 84 min（规划 60 min，1.4×）',
@@ -4889,7 +4897,9 @@ window.ROADMAP_DATA = { siteTitle: 'learn-board', topics: window.__TOPICS__ };
         ? '<span class="badge ' + weightClass(lesson.weight) + '">面试权重 ' + esc(lesson.weight) + '</span>'
         : '<span></span>') +
       '<span class="badge ' + esc(st) + '">' + esc(STATUS_TEXT[st] || st) + '</span>' +
-      '<span class="meta">' + esc(lesson.estimate || '') + '　' + (open ? '▾' : '▸') + '</span>' +
+      '<span class="meta">' + esc(lesson.estimate || '') +
+        (lesson.actual ? ' <span class="actual">实测 ' + esc(lesson.actual) + '</span>' : '') +
+        '　' + (open ? '▾' : '▸') + '</span>' +
       '</div>';
 
     if (!open) return '<div class="lesson ' + esc(st) + '">' + head + '</div>';
