@@ -1789,13 +1789,81 @@ window.ROADMAP_DATA.levels.push({
             '非相关子查询：括号里【不引用外层别名】→ 只算一次，得到一个常数，所有行共用（C2 已用过，本节正式命名）',
             '相关子查询：括号里【引用外层别名】（如 WHERE dept = e.dept）→ 外层每走一行就重算一次，逐行取值',
             'IN vs EXISTS 表达同一需求（有员工的部门 / 没员工的部门），结果相同；MySQL 优化器可能把 IN 改写成半连接（semi-join）'
-          ]
-        },
-        {
-          id: 'C3-PLACEHOLDER',
-          title: '占位',
-          status: 'todo',
-          experiment: { file: null, sql: [], expected: '' },
+          ],
+          dataset: {
+            label: '实验开始前的数据',
+            note: '本节是三张表的配合：employees（谁在岗）+ departments（有哪些部门）+ ex_employees（谁离职了）。HR 依旧是关键 —— 它是「有部门但没员工」的那一行，EXISTS / NOT EXISTS 就是靠它显出差别。ex_employees 是 B1 建的离职表（id = 1、3、9、10），本节用它做 NOT IN 的实验。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['dept', 'salary'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ],
+                note: '各部门薪资：RD 15000 / 18000 / 22000（均值 18333.33）→ 只有 Eve 高于均值；SALES 12000 / 9000 / 9500（均值 10166.67）→ 只有 Carol；MKT 10000 / 11000（均值 10500）→ 只有 Grace。这就是相关子查询实验 4 得到 3 行的原因'
+              },
+              {
+                name: 'departments',
+                columns: ['dept', 'dept_name', 'budget'],
+                focus: ['dept'],
+                rows: [
+                  ['RD',    '研发部',     500000],
+                  ['SALES', '销售部',     300000],
+                  ['MKT',   '市场部',     200000],
+                  ['HR',    '人力资源部', 150000]
+                ],
+                note: 'HR 没有任何员工 → IN / EXISTS 版本都只有 3 行，NOT EXISTS 版本恰好剩 HR 这 1 行'
+              },
+              {
+                name: 'ex_employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['id'],
+                rows: [
+                  [1,  'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [3,  'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [9,  'Ivan',  'RD',    13000, '2018-06-01', null],
+                  [10, 'Judy',  'MKT',   11500, '2020-02-20', null]
+                ],
+                note: 'B1 建的离职表。id 1、3 在 employees 里还在（本实验只按 id 比对，不追求业务真实），所以 NOT IN 之后 employees 还剩 6 人（id 2、4、5、6、7、8）'
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab09.sql',
+            sql: [
+              '-- 实验1：起点（各表行数）',
+              'SELECT (SELECT COUNT(*) FROM employees) AS emp, (SELECT COUNT(*) FROM departments) AS dept, (SELECT COUNT(*) FROM ex_employees) AS ex_emp;  -- 8 / 4 / 4',
+              '-- 实验2：非相关子查询 · 标量 —— 比 Eve 入职晚（C2 已写过，本节正式命名）',
+              "SELECT name, hire_date FROM employees WHERE hire_date > (SELECT hire_date FROM employees WHERE name = 'Eve') ORDER BY hire_date;  -- 7 行",
+              '-- 实验3：非相关子查询 · IN —— 还在职的员工',
+              'SELECT id, name FROM employees WHERE id NOT IN (SELECT id FROM ex_employees) ORDER BY id;  -- 6 行（id 1、3 被排除）',
+              '-- 实验4：相关子查询 —— 比本部门平均薪资高',
+              'SELECT e.name, e.dept, e.salary FROM employees e WHERE e.salary > (SELECT AVG(salary) FROM employees WHERE dept = e.dept) ORDER BY e.dept, e.salary;  -- 3 行：Grace / Eve / Carol',
+              '-- 实验5：相关子查询 · 逐行取值 —— 每个人所在部门的人数',
+              'SELECT id, name, dept, (SELECT COUNT(*) FROM employees WHERE dept = e.dept) AS dept_cnt FROM employees e ORDER BY id;  -- 8 行，dept_cnt 逐行不同（3/3/3/3/3/2/2/3）',
+              '-- 实验6：对照 —— 非相关子查询是常数，所有行共用',
+              'SELECT id, name, (SELECT COUNT(*) FROM employees) AS total FROM employees ORDER BY id;  -- 8 行，total 全是 8',
+              '-- 实验7：故意的 —— 忘了引用外层别名，写成 dept = dept',
+              'SELECT id, name, dept, (SELECT COUNT(*) FROM employees WHERE dept = dept) AS dept_cnt FROM employees e ORDER BY id;  -- 8 行，dept_cnt 全变成 8（不报错）',
+              '-- 实验8：EXISTS —— 有员工的部门',
+              'SELECT d.dept, d.dept_name FROM departments d WHERE EXISTS (SELECT 1 FROM employees e WHERE e.dept = d.dept) ORDER BY d.dept;  -- 3 行（HR 不在）',
+              '-- 实验9：NOT EXISTS —— 没员工的部门',
+              'SELECT d.dept, d.dept_name FROM departments d WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.dept = d.dept) ORDER BY d.dept;  -- HR 1 行',
+              '-- 实验10：派生表（FROM 里的子查询）—— 平均薪资超过 15000 的部门',
+              'SELECT * FROM (SELECT dept, AVG(salary) AS avg_sal FROM employees GROUP BY dept) t WHERE t.avg_sal > 15000;  -- RD 18333.3333，1 行'
+            ],
+            expected: '实验1 → emp 8 / dept 4 / ex_emp 4；实验2 → 7 行；实验3 → 6 行（Bob / Dave / Eve / Frank / Grace / Henry）；实验4 → 3 行（Grace MKT 11000、Eve RD 22000、Carol SALES 12000）；实验5 → 8 行，dept_cnt 依次 3/3/3/3/3/2/2/3；实验6 → 8 行，total 全是 8；实验7 → 8 行，dept_cnt 全变成 8（不报错，这才是危险的地方）；实验8 → 3 行（MKT / RD / SALES）；实验9 → 1 行（HR）；实验10 → 1 行（RD 18333.3333）',
+            errors: '实验7 若报错 Unknown column，说明 MySQL 版本对列名解析更严格，把这台机器上的实际输出发我；实验5 若得到 8 行但 dept_cnt 全是 8，说明你写成了实验7 的形式；实验9 若返回 0 行，检查是不是把 NOT EXISTS 写成了 EXISTS；实验10 若报错 Every derived table must have its own alias，说明派生表 t 的别名漏了',
+            evidence: '待学生贴出'
+          },
           findings: [],
           pitfalls: [],
           quiz: []
