@@ -1784,7 +1784,14 @@ window.ROADMAP_DATA.levels.push({
           status: 'doing',
           weight: '中',
           estimate: '60 min',
+          actual: '37 min（0.6×）',
           plan: '分清非相关子查询（先算一次）和相关子查询（每行都要算一次）。',
+          metrics: [
+            '实际用时：2026-09-25 16:09 开讲 ~ 检验通过 · 37 min（规划 60 min，0.6×）',
+            '分三批：批次一 非相关 vs 相关（实验 1~4）→ 批次二 逐行取值 + 忘写别名（实验 4b~7）→ 批次三 EXISTS / NOT EXISTS / 派生表（实验 8~10）',
+            '检验：3 题核心全对；Q1 的附加小问（同薪并列返回几人）没答、Q2 第③问表述需修正',
+            '备注：概念 1、3 学生在 C2 / A4 已接触过；概念 2（相关子查询）是全新的，但一轮就掌握'
+          ],
           concepts: [
             '非相关子查询：括号里【不引用外层别名】→ 只算一次，得到一个常数，所有行共用（C2 已用过，本节正式命名）',
             '相关子查询：括号里【引用外层别名】（如 WHERE dept = e.dept）→ 外层每走一行就重算一次，逐行取值',
@@ -1862,26 +1869,107 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: '实验1 → emp 8 / dept 4 / ex_emp 4；实验2 → 7 行；实验3 → 6 行（Bob / Dave / Eve / Frank / Grace / Henry）；实验4 → 3 行（Grace MKT 11000、Eve RD 22000、Carol SALES 12000）；实验5 → 8 行，dept_cnt 依次 3/3/3/3/3/2/2/3；实验6 → 8 行，total 全是 8；实验7 → 8 行，dept_cnt 全变成 8（不报错，这才是危险的地方）；实验8 → 3 行（MKT / RD / SALES）；实验9 → 1 行（HR）；实验10 → 1 行（RD 18333.3333）',
             errors: '实验7 若报错 Unknown column，说明 MySQL 版本对列名解析更严格，把这台机器上的实际输出发我；实验5 若得到 8 行但 dept_cnt 全是 8，说明你写成了实验7 的形式；实验9 若返回 0 行，检查是不是把 NOT EXISTS 写成了 EXISTS；实验10 若报错 Every derived table must have its own alias，说明派生表 t 的别名漏了',
-            evidence: '待学生贴出'
+            evidence: '批次一~三全部与预期一致：实验1 → 8/4/4；实验2 → 7 行；实验3 → 6 行；实验4 → 3 行（Grace/Eve/Carol）；实验4b → 3 行（Alice/Bob/Eve，行数相同但人全换）；实验5 → dept_cnt 3/3/3/3/3/2/2/3；实验6 → total 全 8；实验7 → dept_cnt 全 8（不报错）；实验8 / 8b → 各 3 行且一致；实验9 → HR 1 行；实验10 → RD 18333.3333。检验 3 题核心全对'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            '子查询按【括号里有没有引用外层的列】分成两类：不引用 = 非相关（只算一次，得到常数）；引用 = 相关（外层每走一行就重算一次）',
+            '两种子查询的指纹：非相关在同一列上所有行得到同一个值（实验6 的 total 全是 8）；相关在同一列上逐行不同（实验5 的 dept_cnt 3/3/3/3/3/2/2/3）',
+            '「相关」的含义是结果依赖外层当前行 —— 实验4 里 RD 行的均值是 (15000+18000+22000)/3 = 18333.33，SALES 行换成 (12000+9000+9500)/3 = 10166.67',
+            '相关子查询里不带限定符的列名按【内层优先】解析：写在 `dept = dept` 里两个 dept 都指内层表 → 条件恒真 → 等于没有 WHERE → COUNT(*) 数了全表（实验7 全部变成 8，而且不报错）',
+            'EXISTS 括号里可以写 SELECT 1：它只判断「有没有行」，不读取任何列的值；找到第一行就短路返回 TRUE（这就是它在「找到就够」场景下更省的原因）',
+            'EXISTS / NOT EXISTS 的括号几乎总是相关子查询（引用外层的 d.dept），只是返回的是布尔判断而不是值；两者互补 —— 实验8 结果 + 实验9 结果 = 全部 4 个部门',
+            'IN 与 EXISTS 表达同一需求、结果一致（实验8 / 8b 都是 3 行）；选择倾向看子查询结果集与外层行数哪个小，但 MySQL 优化器可能把 IN 改写成半连接（semi-join），实际差异要看 EXPLAIN（L6）',
+            '派生表（FROM 里的子查询）必须起别名，否则报 Every derived table must have its own alias；它相当于一张临时表，绕开了「WHERE 里不能写聚合函数」的限制（实验10）',
+            '删掉相关子查询的关联条件（实验4b）会让它【退化成非相关】：行数可能恰好相同，但内容完全变了（Alice/Bob/Eve vs Grace/Eve/Carol）—— 结果条数不能作为正确性判据'
+          ],
+          pitfalls: [
+            '（学生）Q2 第③问表述不够准：把「内层优先」说成「解释成了子查询的结果的 dept」，实际是【内层表 employees 的列】—— 这是作用域解析规则，不是「结果」；已纠正',
+            '（AI）检验题 Q1 带的附加小问（同部门两人同薪会返回几人）学生答漏了，判定时也没追问 —— 附加小问容易漏答，以后要么独立成题，要么直接写进答案'
+          ],
+          quiz: [
+            {
+              q: '（Q1 动手）用相关子查询查出每个部门里薪资最高的那个人。',
+              mine: 'select e1.name, e1.dept, e1.salary from employees e1 where e1.salary = (select max(e2.salary) from employees e2 where e2.dept=e1.dept ); → Carol SALES 12000 / Eve RD 22000 / Grace MKT 11000，3 rows',
+              note: '✅ 正确，3 行，而且他自己给内外两层都起了别名（e1 / e2）—— 比实验里只用 e 更清楚。附加小问（同部门两人同薪会返回几人）没答：答案是 2 人 —— 条件写成 salary = MAX 时，并列最高的人都会满足。B2 的 ROW_NUMBER 版本会用 ORDER BY 强行分出胜负，而等值比较做不到这一点。'
+            },
+            {
+              q: '（Q2 挑错）WHERE dept = dept 为什么全算成 8？怎么改？MySQL 为什么不报错？',
+              mine: '2、错误在WHERE dept = dept，没有写别名，恒成立。改成WHERE dept = e.dept。不报错是因为解释成了子查询的结果的dept = dept，恒成立。',
+              note: '✅ ①② 正确。③ 方向对、但说法要修正：不是「子查询的结果」，而是【内层表 employees 的列】—— SQL 的列名解析规则是内层作用域优先：不带限定符的 dept 在内层 FROM 的表里存在，就归内层。MySQL 不会去猜「你是不是想引用外层」，规则允许它就合法，所以不报错。'
+            },
+            {
+              q: '（Q3 原理 + 动手）① EXISTS 里为什么可以写 SELECT 1？为什么说它比 IN 更省？② 查出员工数 ≥ 3 的部门。',
+              mine: '3、exists是判断是否存在，select不论结果如何，只要存在就可以。exists只要判断结果是否存在就可以，而in需要和每个值进行比较。→ 两条 SQL（EXISTS 版 + IN 版）都得 RD / SALES，2 rows',
+              note: '✅ 核心答对：EXISTS 只判存在性、不读列值（所以 SELECT 1 够）；IN 要拿外层的值去列表里逐个对。补充：EXISTS 找到第一行就短路返回，这才是「找到就够」场景更省的原因。第二问他两种写法都写出来了（EXISTS + GROUP BY/HAVING 和 IN + GROUP BY/HAVING），都是 2 行。'
+            }
+          ]
         },
         {
           id: 'C4',
           title: '"不存在的行"三种写法对比',
-          status: 'todo',
+          status: 'doing',
           weight: '高',
           estimate: '60 min',
           plan: '把 A4 的 NOT IN 陷阱升级成完整对照实验：NOT IN / NOT EXISTS / LEFT JOIN ... IS NULL。',
           concepts: [
-            'NOT IN 遇到 NULL 会返回空表（A4 已埋点）',
-            'NOT EXISTS 不受 NULL 影响',
-            'LEFT JOIN ... WHERE 右表主键 IS NULL 是第三种写法',
-            '三种写法在面试题"从没下过单的客户"里的行为差异'
+            'NOT IN 遇到 NULL 会返回空表（A4 已埋点，本节用 customers / orders 复现）',
+            'NOT EXISTS 不受 NULL 影响；LEFT JOIN ... WHERE 右表列 IS NULL 是第三种写法',
+            '三种写法必须结果一致（本例都是 3 行）；不一致就是踩了 NULL 或位置（ON / WHERE）的坑'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：用 orders 表（含 customer_id 为 NULL 的行）分别跑三种写法' },
+          dataset: {
+            label: '实验开始前的数据（customers / orders 由本节实验 1 建出来）',
+            note: '本节的关键道具是 orders 里那一行 customer_id = NULL 的订单（id=4，金额 50）—— 它是一条「匿名订单」（比如游客下单，没登录）。没有它，NOT IN 不会出问题，三种写法会一模一样，这节课就白上了。',
+            tables: [
+              {
+                name: 'customers',
+                columns: ['id', 'name'],
+                focus: ['id'],
+                rows: [
+                  [1, 'Alice'],
+                  [2, 'Bob'],
+                  [3, 'Carol'],
+                  [4, 'Dave'],
+                  [5, 'Eve']
+                ],
+                note: 'Dave 和 Eve 一行订单都没有 —— 他们才是「从没下过单的客户」这道题要揪出来的人'
+              },
+              {
+                name: 'orders',
+                columns: ['id', 'customer_id', 'amount'],
+                focus: ['customer_id'],
+                rows: [
+                  [1, 1,    100],
+                  [2, 1,    200],
+                  [3, 2,    300],
+                  [4, null,  50]
+                ],
+                note: 'id=4 的 customer_id 是【NULL】—— 这就是让 NOT IN 返回空表的那一颗雷。另外注意：订单表里从未出现 3、4、5 号客户，所以正确答案应该是 3 行（Carol / Dave / Eve）',
+                ddl: "CREATE TABLE `orders` (\n  `id` int NOT NULL,\n  `customer_id` int DEFAULT NULL,\n  `amount` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab10.sql',
+            sql: [
+              '-- 实验1：建两张表（customers 5 行；orders 4 行，其中 1 行 customer_id 是 NULL）',
+              "DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS customers; CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(50)); CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, amount INT); INSERT INTO customers VALUES (1,'Alice'),(2,'Bob'),(3,'Carol'),(4,'Dave'),(5,'Eve'); INSERT INTO orders VALUES (1,1,100),(2,1,200),(3,2,300),(4,NULL,50); SELECT * FROM customers; SELECT * FROM orders;",
+              '-- 实验2：直观验证 —— IN / NOT IN 碰上 NULL 会变成什么',
+              'SELECT 3 IN (1,2,NULL) AS in_result, 3 NOT IN (1,2,NULL) AS not_in_result;  -- NULL / NULL（都不是 0 或 1）',
+              '-- 实验3：写法 A —— NOT IN（故意的，本题的目标是找出从没下过单的客户）',
+              'SELECT c.id, c.name FROM customers c WHERE c.id NOT IN (SELECT customer_id FROM orders);  -- 0 行（错）',
+              '-- 实验4：写法 A 修复版 —— 在子查询里排除 NULL',
+              'SELECT c.id, c.name FROM customers c WHERE c.id NOT IN (SELECT customer_id FROM orders WHERE customer_id IS NOT NULL);  -- 3 行',
+              '-- 实验5：写法 B —— NOT EXISTS',
+              'SELECT c.id, c.name FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);  -- 3 行',
+              '-- 实验6：写法 C —— LEFT JOIN + WHERE 右表列 IS NULL',
+              'SELECT c.id, c.name FROM customers c LEFT JOIN orders o ON c.id = o.customer_id WHERE o.customer_id IS NULL;  -- 3 行',
+              '-- 实验7：故意的 —— 把 IS NULL 写进 ON（对比 C1 的 ON vs WHERE）',
+              'SELECT c.id, c.name FROM customers c LEFT JOIN orders o ON c.id = o.customer_id AND o.customer_id IS NULL;  -- 5 行（全回来了）'
+            ],
+            expected: '实验1 → customers 5 行、orders 4 行（含 customer_id 为 NULL 的那行）；实验2 → 两个结果都是 NULL；实验3 → 【0 行】（NOT IN 碰到 NULL 的经典后果，且不报错）；实验4 → 3 行（Carol / Dave / Eve）；实验5 → 3 行（同实验4）；实验6 → 3 行（同实验4）；实验7 → 5 行（所有客户都回来了，因为 ON 里的条件永远不成立，而 LEFT JOIN 会把左表全部保留）',
+            errors: '实验3 若返回了 3 行，先 SELECT * FROM orders; 确认那一行 customer_id 真的是 NULL（而不是 0 或空字符串）；实验4/5/6 若三者结果不一致，把三条的输出都发我 —— 这是本节最值得追的情况；实验7 若只得到 3 行，检查 IS NULL 是否写在了 ON 里（写在 ON 里才会得到 5 行）',
+            evidence: '待学生贴出'
+          },
           findings: [],
           pitfalls: [],
           quiz: []
