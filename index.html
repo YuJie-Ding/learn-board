@@ -1907,10 +1907,17 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'C4',
           title: '"不存在的行"三种写法对比',
-          status: 'doing',
+          status: 'done',
           weight: '高',
           estimate: '60 min',
-          plan: '把 A4 的 NOT IN 陷阱升级成完整对照实验：NOT IN / NOT EXISTS / LEFT JOIN ... IS NULL。',
+          actual: '89 min（1.5×）',
+          plan: '把 A4 的 NOT IN 陷阱升级成完整对照实验：NOT IN / NOT EXISTS / LEFT JOIN ... IS NULL，再补双向反查与 FULL OUTER JOIN 模拟。',
+          metrics: [
+            '实际用时：2026-09-25 16:52 开讲 ~ 检验通过 · 89 min（规划 60 min，1.5×）',
+            '分三批：批次一 建表 + NOT IN 撞雷（实验 1~3）→ 批次二 三种写法对照 + 把 IS NULL 写进 ON（实验 4~7）→ 批次三 MySQL 无 FULL OUTER JOIN + LEFT UNION RIGHT + 双向反查（实验 8~12）',
+            '检验：4 题全对、一次通过（Q1 NOT IN vs NOT EXISTS 原理 / Q2 反方向找孤儿订单 / Q3 复习 C1 的 WHERE 让 LEFT JOIN 退化 / Q4 复习 A4 的 NOT IN 常量列表）',
+            '扩展：批次三收了 C1 findings 里埋的伏笔（C1 原话「C4 会正式做」），原 plan 只写到三种写法对比'
+          ],
           concepts: [
             'NOT IN 遇到 NULL 会返回空表（A4 已埋点，本节用 customers / orders 复现）',
             'NOT EXISTS 不受 NULL 影响；LEFT JOIN ... WHERE 右表列 IS NULL 是第三种写法',
@@ -1967,8 +1974,8 @@ window.ROADMAP_DATA.levels.push({
               'SELECT c.id, c.name FROM customers c LEFT JOIN orders o ON c.id = o.customer_id AND o.customer_id IS NULL;  -- 5 行（全回来了）'
             ],
             expected: '实验1 → customers 5 行、orders 4 行（含 customer_id 为 NULL 的那行）；实验2 → 两个结果都是 NULL；实验3 → 【0 行】（NOT IN 碰到 NULL 的经典后果，且不报错）；实验4 → 3 行（Carol / Dave / Eve）；实验5 → 3 行（同实验4）；实验6 → 3 行（同实验4）；实验7 → 5 行（所有客户都回来了，因为 ON 里的条件永远不成立，而 LEFT JOIN 会把左表全部保留）',
-            errors: '实验3 若返回了 3 行，先 SELECT * FROM orders; 确认那一行 customer_id 真的是 NULL（而不是 0 或空字符串）；实验4/5/6 若三者结果不一致，把三条的输出都发我 —— 这是本节最值得追的情况；实验7 若只得到 3 行，检查 IS NULL 是否写在了 ON 里（写在 ON 里才会得到 5 行）',
-            evidence: '待学生贴出'
+            errors: '实验3 若返回了 3 行，先 SELECT * FROM orders; 确认那一行 customer_id 真的是 NULL（而不是 0 或空字符串）；实验4/5/6 若三者结果不一致，把三条的输出都发我 —— 这是本节最值得追的情况；实验6 若 0 行，检查是不是把 IS NULL 写成了 = NULL（= NULL 永远不成立）；实验7 若只得到 3 行，检查 IS NULL 是否写在了 ON 里（写在 ON 里才会得到 5 行）；实验8 若不报错，说明用的不是 MySQL；实验11 若得到 10 行，说明把 UNION 写成了 UNION ALL；实验12 若只得到 3 行，说明 WHERE 里漏了 OR t.order_id IS NULL',
+            evidence: '三批全部与预期一致，逐条贴出原始输出：实验1 → customers 5 行 + orders 4 行（id=4 的 customer_id 为 NULL）；实验2 → NULL / NULL；实验3 → Empty set（0 行，不报错）；实验4 / 5 / 6 / 6b → 都是 3 行且逐行一致（Carol 3 / Dave 4 / Eve 5）；实验7 → 5 行（所有客户回来，o.amount 全 NULL）；实验8 → ERROR 1064 (42000) syntax error near \'FULL OUTER JOIN\'；实验9 → 6 行；实验10 → 4 行（匿名订单现形，cust_id 为 NULL）；实验11 → 7 行；实验12 → 4 行。检验 4 题全对、一次通过'
           },
           findings: [],
           pitfalls: [],
