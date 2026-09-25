@@ -1661,7 +1661,14 @@ window.ROADMAP_DATA.levels.push({
           status: 'doing',
           weight: '中',
           estimate: '45 min',
+          actual: '29 min（0.6×）',
           plan: '同一张表当两张用，为"比较同一张表里两行"的题型打基础。',
+          metrics: [
+            '实际用时：2026-09-25 15:28 开讲 ~ 检验通过 · 29 min（规划 45 min，0.6×）',
+            '分三批：批次一 别名 / 报错 / 两两配对（实验 1~4）→ 批次二 自连接 vs 子查询（实验 5~5c）→ 批次三 weather 与 LeetCode 197（实验 6~10）',
+            '检验：3 题，Q2 / Q3 一次通过；Q1（DATEDIFF 方向）搞反，重问后答对 —— 本节唯一卡住的地方',
+            '备注：概念 1、2 学生在 B2 已无意识地用过（TopN 自连接、COUNT(*) 包含自己），本节相当于「给已经在用的手法第一次命名」'
+          ],
           concepts: [
             '自连接 = 同一张表起两个别名当两张用；不起别名直接报 ERROR 1066 Not unique table/alias',
             '「自己和同部门的同事配对」要多加一个 e.id <> m.id，否则每行都会配到自己（不排除自己时 22 行，排除后 14 行）',
@@ -1731,25 +1738,64 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: '实验1 → 8 行；实验2 → ERROR 1066 Not unique table/alias: employees；实验3 → 14 行（Alice-Bob、Alice-Eve、Bob-Alice、Bob-Eve、Eve-Alice、Eve-Bob 共 6 行 RD；Carol-Dave、Carol-Henry、Dave-Carol、Dave-Henry、Henry-Carol、Henry-Dave 共 6 行 SALES；Frank-Grace、Grace-Frank 共 2 行 MKT）；实验4 → 22 行；实验5 → 7 行（Bob / Alice / Grace / Carol / Frank / Dave / Henry，按 hire_date 升序）；实验5b → 7 行，与实验5 完全一致；实验7 → id 2 与 4；实验9 → 仍是 id 2 与 4（5 号因为日期差 6 天不参与）；实验10 → id 2 / 4 / 5（5 号被 id 相邻的错法多算进来）',
             errors: '实验2 若没报错，说明你把别名写上了 —— 这条的重点就是看报错原文；实验3 若是 22 行，检查 e.id <> m.id 有没有写；实验5 若得到 8 行，说明条件写成了 >= （Eve 自己会被算进来）；实验10 若和实验9 结果相同，检查 weather 里 id = 5 那条是否插进去了',
-            evidence: '待学生贴出'
+            evidence: '全部输出与预期一致：实验3 → 14 行（Alice-Bob 与 Bob-Alice 成对）；实验4 → 22 行；实验5 / 5b → 各 7 行且完全一致；实验5c → 8 行（Eve 在第一行）；实验7 / 9 → 2、4；实验10 → 2、4、5。检验：Q2 / Q3 通过，Q1 方向搞反后重问答对'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            '自连接不是新语法，是 JOIN 的一种用法：把同一张表起两个别名，让它在一次查询里同时扮演两个角色',
+            '不起别名 → ERROR 1066 (42000) Not unique table/alias: employees —— FROM 里同一张表出现两次后，employees.dept 就有歧义了，MySQL 不会替你猜',
+            '自连接必须显式排除自己：ON e.dept = m.dept 对每个人自己恒成立 → 不排除 22 行（3² + 3² + 2²），加 e.id <> m.id 后 14 行（3×2 + 3×2 + 2×1）。这就是 B2 里「COUNT(*) 包含自己，所以 ON 配 >=」的来源',
+            '自连接的结果是有方向的：Alice-Bob 与 Bob-Alice 是两行，配对数 = 组内有序对数',
+            '自连接与子查询能表达同一需求（比 Eve 入职晚 → 两种写法各 7 行）：自连接把参照物摆进 FROM（8 × 1 = 8 行再筛），子查询把参照物算成一个标量值 2019-11-01（只算一次）。两种写法结果必须一致，不一致就说明有一处写错',
+            '自连接里参照物会被 >= 带进来：实验 5c 用 >= 得到 8 行、Eve 出现在第一行（B2 那个 > / >= 老坑重演）',
+            '判「相邻两天」要用日期做减法（DATEDIFF(w1, w2) = 1），不能用 id 做减法：id 只保证唯一和递增，不保证连续、也不保证与业务时间对应。实测 DATEDIFF 版本 → 2、4；id 相邻版本 → 2、4、5（多算 id=5，它与 id=4 日期差 6 天）',
+            'DATEDIFF(a, b) = a − b：DATEDIFF(w1, w2) = 1 表示 w1 比 w2 晚一天（w1 = 今天、w2 = 昨天）；写成 = -1 就把两个角色整个调头了'
+          ],
+          pitfalls: [
+            '（学生）检验 Q1 把 DATEDIFF 方向写反：用 = -1 且 w1.temp < w2.temp，实际回答的是「哪天的温度比它的后一天低」，多出不该出现的 id=1；正确写法是 DATEDIFF(w1, w2) = 1 + w1.temp < w2.temp → 1 行 id=3',
+            '（学生）自连接里 >= 会把参照物自己带进来（实验 5c 得到 8 行，Eve 在第一行）',
+            '（AI）lab08.sql 初稿注释写了「22 行这个数字你在 B2 实验 16 见过」—— B2 实验 16 的输出是 6 行（被 HAVING 挡住），22 只是中间量，已改成准确表述'
+          ],
+          quiz: [
+            {
+              q: '（Q1 动手）找出温度比前一天低的记录 id。',
+              mine: '1、select w1.id from weather w1 join weather w2 on datediff(w1.recordDate, w2.recordDate) = -1 where w1.temperature < w2.temperature;，结果2个是1，3.',
+              note: '❌ 方向反了。DATEDIFF(w1,w2) = -1 意思是 w1 比 w2【早】一天 → w1 是昨天、w2 是今天，条件读出来是「昨天比今天低」，返回的是昨天的 id。结果里 3 是巧合对上的（01-03 既比前一天低、也比后一天低），1 是多出来的（01-01 没有前一天）。正确写法 DATEDIFF(w1,w2) = 1 + w1.temp < w2.temp → 1 行 id=3。'
+            },
+            {
+              q: '（Q1 重问）① 原写法实际在回答什么问题？返回的 id 代表哪一天？② 「温度比前一天低」的正确写法与结果？',
+              mine: '1、实际是昨天比今天温度低的"昨天"的id。id是前一天的id。2、select w1.id from weather w1 join weather w2 on datediff(w1.recordDate, w2.recordDate) = 1 where w1.temperature < w2.temperature; → id 3, 1 row in set',
+              note: '✅ 两问都对，且亲手验证得到 id=3。方向这一关过了 —— 记住 DATEDIFF(今天, 昨天) = +1，谁在前谁就更晚。'
+            },
+            {
+              q: '（Q2 挑错）id 相邻的写法多返回了 id=5：① 为什么？② 与 DATEDIFF 版本对「昨天」的理解差在哪？③ 生产环境为什么比报错更难发现？',
+              mine: '2、因为用id差1不代表日期差1天。id连续日期可能不连续。昨天不一定是id差1的。生产环境只会给出计算结果，无数条结果里多了一个或少了一个是很难看出来的。',
+              note: '✅ 三问都答到。补充第③层：报错是【立刻、局部、显式】的，日志和监控都能抓到；而这条 SQL 成功返回了一个看起来合理的结果，会一路流进报表和下游系统，往往要等业务方发现数字不对才暴露 —— 这就是「不报错的错」，与 C1 那个 LEFT JOIN 静默退化成 INNER JOIN 是同一类。'
+            },
+            {
+              q: '（Q3 动手）查出和 Alice 同部门、但薪资比她高的同事。',
+              mine: "3、select e1.name,e1.salary from employees e1 join employees e2 on e2.name='Alice' and e1.name<>e2.name where e1.salary > e2.salary; → Bob 18000 / Eve 22000，2 rows",
+              note: '✅ 正确，2 行。两点补充：① e1.name <> e2.name 在这题里其实用不着（e1.salary > e2.salary 已经排除了 Alice 自己）；② 更严谨的比较该用 id 而不是 name（name 理论上可能重名）—— 与实验 3 用 e.id <> m.id 同理。'
+            }
+          ]
         },
         {
           id: 'C3',
           title: '子查询 / 相关子查询 / IN vs EXISTS',
-          status: 'todo',
+          status: 'doing',
           weight: '中',
           estimate: '60 min',
           plan: '分清非相关子查询（先算一次）和相关子查询（每行都要算一次）。',
           concepts: [
-            '非相关子查询只执行一次；相关子查询对外层每一行都执行一次',
-            'IN 适合子查询结果小的场景，EXISTS 适合外层小的场景',
-            'MySQL 优化器有时会把 IN 改写成半连接（semi-join）'
-          ],
-          experiment: { file: null, sql: [], expected: '待设计：同一需求的 IN / EXISTS 两种写法对比' },
+            '非相关子查询：括号里【不引用外层别名】→ 只算一次，得到一个常数，所有行共用（C2 已用过，本节正式命名）',
+            '相关子查询：括号里【引用外层别名】（如 WHERE dept = e.dept）→ 外层每走一行就重算一次，逐行取值',
+            'IN vs EXISTS 表达同一需求（有员工的部门 / 没员工的部门），结果相同；MySQL 优化器可能把 IN 改写成半连接（semi-join）'
+          ]
+        },
+        {
+          id: 'C3-PLACEHOLDER',
+          title: '占位',
+          status: 'todo',
+          experiment: { file: null, sql: [], expected: '' },
           findings: [],
           pitfalls: [],
           quiz: []
