@@ -1523,10 +1523,16 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'C1',
           title: 'JOIN 基础：INNER / LEFT / RIGHT',
-          status: 'doing',
+          status: 'done',
           weight: '中',
           estimate: '45 min',
+          actual: '45 min（1.0×）',
           plan: '搞清 JOIN 的驱动关系，以及笛卡尔积是怎么炸出来的。',
+          metrics: [
+            '实际用时：2026-09-25 14:18 开讲 ~ 检验通过 · 45 min（规划 45 min，正好 1.0×）',
+            '分三批：批次一 INNER / LEFT / RIGHT（实验 1~6）→ 批次二 计数陷阱 + ON vs WHERE（实验 6b~10）→ 批次三 双向不匹配 + 笛卡尔积（实验 11~13）',
+            '检验：3 题全对 —— 其中第 1、3 题正是学生开课前自己提出的疑问（他在 B2 末尾就问过「为什么 INNER 和 LEFT 结果一样」）'
+          ],
           concepts: [
             'INNER JOIN 只保留两边都匹配的行；LEFT JOIN 保留左表全部',
             '忘记写 ON 条件 = 笛卡尔积（行数 = 左表行数 × 右表行数）',
@@ -1609,24 +1615,124 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: '实验2 → 8 行（HR 消失）；实验3 → 9 行（HR 那行 e.name 为 NULL）；实验4 → 8 行（HR 又没了，因为左表换成了 employees）；实验5 → inner_cnt 8 / left_cnt 9；实验6 → 9 行，与实验3 等价；实验7 → HR 0 / MKT 2 / RD 3 / SALES 3；实验8 → HR 变成 1（错）；实验9 → 5 行，HR 消失；实验10 → 6 行，HR 保留；实验11 → 9 行，Ivy 的 dept_name 为 NULL；实验12 → 仍 4 行，FIN 不出现；实验13 → 32 行',
             errors: '实验3 若也是 8 行，检查是不是把 LEFT JOIN 写成了 JOIN；实验8 若 HR 是 0，说明你写的是 COUNT(e.id)；实验10 若 HR 消失，说明条件写到了 WHERE 里；实验13 若不是 32 行，先 SELECT COUNT(*) FROM employees / departments 确认两张表行数',
-            evidence: '待学生贴出'
+            evidence: '批次一~三全部输出与预期一致：实验2/3/4/6 → 8/9/8/9 行（实验3 HR 那行 e.name 为 NULL）；实验5 → inner_cnt 8 / left_cnt 9；实验6b → UNION 4 行 / UNION ALL 12 行；实验7/8 → HR 0（正确）/ HR 1（错）；实验9 → 5 行 HR 消失；实验10 → 6 行 HR 保留；实验11b → 9 行 Ivy 的 dept_name 为 NULL；实验12 → 4 行、合计 8 人（Ivy 被漏）；实验12b → 4 行（HR 被漏）；收尾 back_to_8 = 8；实验13 → 32 行。检验 3 题全对。'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            'INNER / LEFT JOIN 的差别【只出现在「左表有行、右表配不上」的时候】—— 没有这种行，两者输出完全相同。B2 用 employees 自连接看不出差别，是因为每个人在本部门里都能找到自己，这种行当时不存在',
+            'LEFT JOIN 保住的是【左表】：同样两张表，实验3（departments 在左）HR 留下、9 行；实验4（employees 在左）HR 消失、8 行 —— 只换左右就差一行。左表 = 你想「全部保住」的那张表',
+            'LEFT JOIN 给配不上的行补的那一行是【真实存在的行】→ COUNT(*) 会把它数成 1（HR 变成 1）；要数人数必须用 COUNT(e.id)（COUNT 家族只数非 NULL，A4 学过）',
+            '【WHERE 在 JOIN 之后执行，只放行判断为 TRUE 的行】；左连接补出来的那行 e.salary 是 NULL，而 NULL > 10000 是 UNKNOWN 不是 TRUE（A3 三值逻辑）→ 被丢掉 → LEFT JOIN 静默退化成 INNER JOIN（实验9 得 5 行，HR 消失）',
+            '同一个条件写在 ON 里（实验10）时，它参与的是「连接时判断这一对配不配得上」：不成立只代表配不上，左表的行照样输出 → 6 行、HR 保留。一句话：ON 管「怎么配」，WHERE 管「配完之后留不留」',
+            '双向不匹配：HR 有部门没员工（departments 在左才看得见）、Ivy 有员工没部门（employees 在左才看得见）。两个方向的 LEFT JOIN 各自会漏掉对方的「孤儿行」—— 实验12 得到 4 行、合计 8 人，而表里当时有 9 人，差的 1 个就是 Ivy',
+            '忘记写 ON = 笛卡尔积，行数 = 左表行数 × 右表行数（8 × 4 = 32）。ON 的职责是提供「配对依据」，没有依据 MySQL 只能穷举。生产上 10 万 × 10 万 = 100 亿行，是实打实的事故',
+            'MySQL 没有 FULL OUTER JOIN；要「两边都保」得自己拼 LEFT JOIN ... UNION RIGHT JOIN ...（正好用上 B1 的 UNION，C4 会正式做）'
+          ],
+          pitfalls: [
+            '（学生，B1 遗留）抽查 UNION 时只说了「列数一致就行」，漏掉 B1 的核心结论：UNION 会去重、UNION ALL 不去重 —— 已用补测实验 6b 当场验证（4 行 vs 12 行）',
+            '（学生，表述不准）把一对多说成「左表会补足行数和右表一致」—— 实际是左表那一行被【复制】成多行，行数 = Σ 每个左表行的匹配数；已当场纠正',
+            '（学生，B2 遗留的思维习惯）以为 INNER 和 LEFT 结果一样 —— 根源是当时的数据里不存在「配不上的行」，实验无法区分假设。这与 B1「丙的 ORDER BY 看不出生效」是同一类毛病：实验数据必须能区分假设'
+          ],
+          quiz: [
+            {
+              q: '（Q1 写 SQL）列出所有部门及薪资 > 10000 的员工，一个符合条件的员工都没有的部门也要保留（姓名显示 NULL）。',
+              mine: '1、select d.dept, d.dept_name, e.name from departments d left join employees e on d.dept = e.dept and e.salary > 10000; 结果是6行。',
+              note: '✅ 正确，条件和 ON 写在一起，6 行。他甚至没用手边实验 10 的原句，是自己重新敲的。'
+            },
+            {
+              q: '（Q2 找错）SELECT d.dept, COUNT(*) ... FROM departments d LEFT JOIN employees e ... GROUP BY d.dept; 哪里错、怎么改、为什么？',
+              mine: '2、HR人力资源部人数是错的。错成了1，应该是0。改成count(e.id)。left join之后，有人力资源部HR但是右表都是null的行。count(*)会把这行统计进去。',
+              note: '✅ 全对。三问都答到了：错的是 HR、错成 1、改成 COUNT(e.id)、原因是 COUNT(*) 数的是行数而左连接补出来的 NULL 行也是一行。'
+            },
+            {
+              q: '（Q3 原理）WHERE 版本里 HR 消失：① NULL > 10000 的结果是什么？等于 FALSE 吗？② 为什么条件写 ON 或 WHERE 会导致 HR 在或不在？',
+              mine: '3、`NULL > 10000` 的结果是unknown，不是false，也不是true。on在连接时执行，我的理解是只过滤employees表中的数据，不会影响左表的数据，过滤之后不影响和左表的连接。where是连接之后的结果里进行过滤，这时候HR所在行的e.salary是null，就被丢弃了。',
+              note: '✅ 正确。UNKNOWN 的三值逻辑（A3）记住了，执行时机也说清了：ON 在连接时判断、只影响「配不配得上」；WHERE 在连接后筛行、NULL 判不出 TRUE 就被丢。'
+            },
+            {
+              q: '（B1 抽查）UNION 和 JOIN 各自的「行」是怎么来的？',
+              mine: 'union是只要两个select结果列数一致就行，把第二个select结果每一行叠在第一个后边。join是两个表通过某个字段的值是否一致进行比较，将这个字段的值一致的行，横向连接。对于inner join和left join，如果左表一行对应右表多行，左表会补足行数和右表一致。区别在于左表的行在右边一个也没有的情况，inner join丢弃，left join右表全null。right join是left join的左右表进行了反向操作。',
+              note: 'JOIN 部分基本正确，两处要修正：①「左表会补足行数和右表一致」→ 应说「左表那一行被复制成多行」；② 漏掉 UNION 去重这个 B1 核心结论（UNION ALL 才不去重），另需列类型兼容。已补测实验 6b 验证：departments 4 行 UNION employees 8 行 → 4 行；UNION ALL → 12 行。RIGHT JOIN 的补充：等价于把两张表名互换后的 LEFT JOIN（实验6 与实验3 输出一字不差）。'
+            }
+          ]
         },
         {
           id: 'C2',
           title: '自连接',
-          status: 'todo',
+          status: 'doing',
           weight: '中',
           estimate: '45 min',
           plan: '同一张表当两张用，为"比较同一张表里两行"的题型打基础。',
           concepts: [
-            '自连接必须起别名，否则 MySQL 不知道说的是哪一张',
-            '典型题型：查比某人入职晚的员工、上升的温度（LeetCode 197）'
+            '自连接 = 同一张表起两个别名当两张用；不起别名直接报 ERROR 1066 Not unique table/alias',
+            '「自己和同部门的同事配对」要多加一个 e.id <> m.id，否则每行都会配到自己（不排除自己时 22 行，排除后 14 行）',
+            '典型题型：查比某人入职晚的人（自连接 / 子查询两种写法）、上升的温度 LeetCode 197（用 DATEDIFF = 1 判「日期相邻」）'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：在 employees 上用自连接比较两个人的薪资' },
+          dataset: {
+            label: '实验开始前的数据（weather 由实验 6 建出来）',
+            note: '本节的主道具就是 employees 自己 —— 同一张表起两个别名当两张用。weather 是实验 6 才建的：前 4 行取自 LeetCode 197 原题数据（日期连续），第 5 行是有意加进去的「id 连续但日期断档」的记录，专门用来暴露「用 id 相邻代替日期相邻」这个错法。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['id', 'dept', 'hire_date'],
+                rows: [
+                  [1, 'Alice', 'RD',    15000, '2021-03-01', 2000],
+                  [2, 'Bob',   'RD',    18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave',  'SALES',  9000, '2023-05-20', null],
+                  [5, 'Eve',   'RD',    22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT',   10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT',   11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES',  9500, '2024-02-01', null]
+                ],
+                note: 'RD / SALES 各 3 人、MKT 2 人 —— 同部门两两配对（排除自己）是 3×2 + 3×2 + 2×1 = 14 行；不排除自己则是 3² + 3² + 2² = 22 行。Eve 的 hire_date 是 2019-11-01，是全表最早的，所以「比 Eve 入职晚」有 7 个人（不含 Eve 自己，因为 > 不含相等）'
+              },
+              {
+                name: 'weather',
+                columns: ['id', 'recordDate', 'temperature'],
+                focus: ['recordDate', 'temperature'],
+                rows: [
+                  [1, '2015-01-01', 10],
+                  [2, '2015-01-02', 25],
+                  [3, '2015-01-03', 20],
+                  [4, '2015-01-04', 30],
+                  [5, '2015-01-10', 40]
+                ],
+                note: 'id 1~4 日期连着（LeetCode 197 原题数据），id = 5 的日期直接跳到 01-10。标准写法（DATEDIFF = 1）看不到 5；「id 相邻」的错法会以为 5 是 4 的后一天，把它多算进来',
+                ddl: "CREATE TABLE `weather` (\n  `id` int NOT NULL,\n  `recordDate` date DEFAULT NULL,\n  `temperature` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab08.sql',
+            sql: [
+              '-- 实验1：起点',
+              'SELECT id, name, dept, salary, hire_date FROM employees ORDER BY id;  -- 8 行',
+              '-- 实验2：故意的 —— 自连接不起别名',
+              'SELECT name FROM employees JOIN employees ON employees.dept = employees.dept;  -- ERROR 1066 Not unique table/alias',
+              '-- 实验3：起别名，同部门同事两两配对（排除自己）',
+              'SELECT e.name AS emp, m.name AS mate, e.dept FROM employees e JOIN employees m ON e.dept = m.dept AND e.id <> m.id ORDER BY e.id, m.id;  -- 14 行',
+              '-- 实验4：对照 —— 去掉 e.id <> m.id',
+              'SELECT COUNT(*) AS not_exclude_self FROM employees e JOIN employees m ON e.dept = m.dept;  -- 22 行（含自己配自己）',
+              '-- 实验5：查比 Eve 入职晚的员工（自连接写法）',
+              "SELECT e.name, e.hire_date FROM employees e JOIN employees boss ON boss.name = 'Eve' WHERE e.hire_date > boss.hire_date ORDER BY e.hire_date;  -- 7 行",
+              '-- 实验5b：同一需求用非相关子查询',
+              "SELECT name, hire_date FROM employees WHERE hire_date > (SELECT hire_date FROM employees WHERE name = 'Eve') ORDER BY hire_date;  -- 7 行（与实验5 一致）",
+              '-- 实验6：LeetCode 197 上升的温度 —— 建 weather（前 4 行是原题数据）',
+              "DROP TABLE IF EXISTS weather; CREATE TABLE weather (id INT PRIMARY KEY, recordDate DATE, temperature INT); INSERT INTO weather VALUES (1,'2015-01-01',10),(2,'2015-01-02',25),(3,'2015-01-03',20),(4,'2015-01-04',30);",
+              '-- 实验7：标准写法 —— 用「日期相差 1 天」判相邻',
+              'SELECT w1.id FROM weather w1 JOIN weather w2 ON DATEDIFF(w1.recordDate, w2.recordDate) = 1 WHERE w1.temperature > w2.temperature;  -- 2 / 4',
+              '-- 实验8：插入一条 id 连续但日期断档的记录',
+              "INSERT INTO weather VALUES (5,'2015-01-10',40);",
+              '-- 实验9：标准写法再跑一次 —— 5 号不出现（与 4 号日期差 6 天）',
+              'SELECT w1.id FROM weather w1 JOIN weather w2 ON DATEDIFF(w1.recordDate, w2.recordDate) = 1 WHERE w1.temperature > w2.temperature;  -- 仍是 2 / 4',
+              '-- 实验10：故意的 —— 改用 id 相邻代替日期相邻',
+              'SELECT w1.id FROM weather w1 JOIN weather w2 ON w1.id = w2.id + 1 WHERE w1.temperature > w2.temperature;  -- 2 / 4 / 5（多出 5，错）'
+            ],
+            expected: '实验1 → 8 行；实验2 → ERROR 1066 Not unique table/alias: employees；实验3 → 14 行（Alice-Bob、Alice-Eve、Bob-Alice、Bob-Eve、Eve-Alice、Eve-Bob 共 6 行 RD；Carol-Dave、Carol-Henry、Dave-Carol、Dave-Henry、Henry-Carol、Henry-Dave 共 6 行 SALES；Frank-Grace、Grace-Frank 共 2 行 MKT）；实验4 → 22 行；实验5 → 7 行（Bob / Alice / Grace / Carol / Frank / Dave / Henry，按 hire_date 升序）；实验5b → 7 行，与实验5 完全一致；实验7 → id 2 与 4；实验9 → 仍是 id 2 与 4（5 号因为日期差 6 天不参与）；实验10 → id 2 / 4 / 5（5 号被 id 相邻的错法多算进来）',
+            errors: '实验2 若没报错，说明你把别名写上了 —— 这条的重点就是看报错原文；实验3 若是 22 行，检查 e.id <> m.id 有没有写；实验5 若得到 8 行，说明条件写成了 >= （Eve 自己会被算进来）；实验10 若和实验9 结果相同，检查 weather 里 id = 5 那条是否插进去了',
+            evidence: '待学生贴出'
+          },
           findings: [],
           pitfalls: [],
           quiz: []
