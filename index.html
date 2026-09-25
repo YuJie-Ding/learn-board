@@ -459,8 +459,11 @@ table.dtable td.focus { background: var(--accent-dim); color: var(--text); }
   .sidebar { position: static; height: auto; }
   .main { padding: 22px 18px 70px; }
   .lesson-head { grid-template-columns: 44px 1fr auto; }
-  .lesson-head .meta, .lesson-head .badge.w-high,
-  .lesson-head .badge.w-mid, .lesson-head .badge.w-low { display: none; }
+  .lesson-head .badge.w-high,
+  .lesson-head .badge.w-mid,
+  .lesson-head .badge.w-low { display: none; }
+  /* 窄屏（手机）不要藏时间：只藏「预计」，保留「实测」—— 手机上也要看得到真实进度 */
+  .lesson-head .meta .est { display: none; }
 
   /* 手机上让代码换行而不是横向滚动 —— 横滑看代码体验很差 */
   pre.code { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1530,8 +1533,8 @@ window.ROADMAP_DATA.levels.push({
             'ON 和 WHERE 在 LEFT JOIN 里的效果不同（这是个高频陷阱）'
           ],
           dataset: {
-            label: '实验开始前的数据（departments 由本节实验 1 建出来）',
-            note: '本节的核心道具是 HR（人力资源部）—— 它在 departments 里，但没有任何员工。没有它，INNER 和 LEFT 的输出会长得一模一样（B2 那个「看不出差别」的坑会重演）。',
+            label: '实验开始前的数据（departments 在实验 1 中 DROP 后重建，内容与本快照一致）',
+            note: '本节的核心道具是 HR（人力资源部）—— 它在 departments 里，但没有任何员工。没有它，INNER 和 LEFT 的输出会长得一模一样（B2 那个「看不出差别」的坑会重演）。这张表是备课时先建好的，所以实验 1 从 DROP 开始，保证你看到的起点和这份快照一致。',
             tables: [
               {
                 name: 'employees',
@@ -1575,8 +1578,8 @@ window.ROADMAP_DATA.levels.push({
           experiment: {
             file: 'lab07.sql',
             sql: [
-              '-- 实验1：建 departments（HR 故意没有员工）',
-              "CREATE TABLE departments (dept VARCHAR(20) PRIMARY KEY, dept_name VARCHAR(50), budget INT); INSERT INTO departments VALUES ('RD','研发部',500000),('SALES','销售部',300000),('MKT','市场部',200000),('HR','人力资源部',150000);",
+              '-- 实验1：重建 departments（HR 故意没有员工）—— 表在备课时已建好，先 DROP 保证起点与快照一致',
+              "DROP TABLE IF EXISTS departments; CREATE TABLE departments (dept VARCHAR(20) PRIMARY KEY, dept_name VARCHAR(50), budget INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; INSERT INTO departments VALUES ('RD','研发部',500000),('SALES','销售部',300000),('MKT','市场部',200000),('HR','人力资源部',150000); SELECT * FROM departments;",
               '-- 实验2：INNER JOIN',
               'SELECT e.name, e.dept, d.dept_name FROM employees e JOIN departments d ON e.dept = d.dept ORDER BY e.id;  -- 8 行，HR 消失',
               '-- 实验3：departments 在左',
@@ -4897,7 +4900,7 @@ window.ROADMAP_DATA = { siteTitle: 'learn-board', topics: window.__TOPICS__ };
         ? '<span class="badge ' + weightClass(lesson.weight) + '">面试权重 ' + esc(lesson.weight) + '</span>'
         : '<span></span>') +
       '<span class="badge ' + esc(st) + '">' + esc(STATUS_TEXT[st] || st) + '</span>' +
-      '<span class="meta">' + esc(lesson.estimate || '') +
+      '<span class="meta"><span class="est">' + esc(lesson.estimate || '') + '</span>' +
         (lesson.actual ? ' <span class="actual">实测 ' + esc(lesson.actual) + '</span>' : '') +
         '　' + (open ? '▾' : '▸') + '</span>' +
       '</div>';
