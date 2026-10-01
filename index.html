@@ -2306,19 +2306,139 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'D3',
           title: '窗口函数进阶：SUM OVER 与连续 N 天',
-          status: 'doing',
+          status: 'done',
           weight: '高',
           estimate: '60 min',
+          actual: '51 min（0.85×）',
           plan: '掌握累计 / 滑动窗口，以及"连续 N 天登录"这类经典题的套路。',
+          metrics: [
+            '实际用时：2026-10-01 17:43 开讲 ~ 检验通过 · 51 min（规划 60 min，0.85×）',
+            '分四批：批次一 累计求和 + 分组累计（实验 1~2）→ 批次二 默认窗口 RANGE 的真相（实验 3）→ 批次三 滑动窗口移动平均 + LAG/LEAD（实验 4~5）→ 批次四 连续 N 天收官（实验 6~8）',
+            '讲前预演：四条关键实验（RANGE vs ROWS / 累计 / 移动平均 / LAG / 连续 N 天）全部跑通，本次未发现教案错误',
+            '检验：4 题里 Q2 / Q3 一次通过；Q1 默认窗口帧写成 AND UNBOUNDED FOLLOWING（正确是 AND CURRENT ROW）、Q4 能说出「会破坏」但想不出修法，两题重做后通过；收尾又追问两个「为什么」小问才放行',
+            '额外收获：Q4 的重复行陷阱（学生自己动手插了重复行）把 D2 的「并列」和 D3 的「连续」串在了一起，并暴露了「会写不会讲」的毛病',
+            '跨库差异提醒：OVER 里没写 ORDER BY 时默认窗口是整个分组（SUM(x) OVER () 每行都一样），这一点与「写了 ORDER BY 就变累计」是同一条规则的两种表现'
+          ],
           concepts: [
             'SUM() OVER (ORDER BY ...) 是累计求和；加 ROWS BETWEEN 是滑动窗口',
             '连续 N 天套路：ROW_NUMBER 做差后分组（日期减行号是常数）',
             'LAG / LEAD 取前后行'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：造一张登录记录表，找出连续登录 3 天的用户' },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          dataset: {
+            label: '实验开始前的数据（daily_sales / logins 由本节实验现场建出；employees 沿用 D1 的 8 行）',
+            note: '本节三张表各司其职：employees（hire_date 无并列）演示干净的累计与滑动窗口；daily_sales 的 day 列【故意有并列】，用来暴露默认窗口 RANGE 的真相；logins 是连续登录实验的载体（uid1 连续 3 天、uid2 连续 4 天、uid3 只有 2 天、uid4 全断开）。',
+            tables: [
+              {
+                name: 'daily_sales',
+                columns: ['day', 'amount'],
+                focus: ['day'],
+                rows: [
+                  [1, 100],
+                  [1, 50],
+                  [2, 30],
+                  [3, 20]
+                ],
+                note: 'day=1 有两笔（100 / 50）—— 这就是本节的核心机关：RANGE 按「值」划边界，这两行互相都算在对方的窗口里 → rng 都拿到 150。如果 day 没有并列，RANGE 与 ROWS 完全一样，这个坑就看不见了。',
+                ddl: "CREATE TABLE `daily_sales` (\n  `day` int DEFAULT NULL,\n  `amount` int DEFAULT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              },
+              {
+                name: 'logins',
+                columns: ['user_id', 'login_date'],
+                focus: ['login_date'],
+                rows: [
+                  [1, '2026-09-01'],
+                  [1, '2026-09-02'],
+                  [1, '2026-09-03'],
+                  [1, '2026-09-07'],
+                  [2, '2026-09-01'],
+                  [2, '2026-09-03'],
+                  [2, '2026-09-04'],
+                  [2, '2026-09-05'],
+                  [2, '2026-09-06'],
+                  [3, '2026-09-01'],
+                  [3, '2026-09-02'],
+                  [4, '2026-09-02'],
+                  [4, '2026-09-04'],
+                  [4, '2026-09-06']
+                ],
+                note: 'uid1 登录 09-01/02/03/07（前 3 天连续、07 断开）；uid2 登录 09-01/03/04/05/06（03~06 连续 4 天）；uid3 只有 2 天；uid4 隔天各一次。⚠️ 检验 Q4 时学生又手动 INSERT 了一条 (1, 2026-09-02) 造出重复行（表变成 15 行），用来演示 grp 的常数性被破坏、一段连续被切成两段 —— 下一节课开讲前如需干净数据，重跑实验 6 即可。',
+                ddl: "CREATE TABLE `logins` (\n  `user_id` int DEFAULT NULL,\n  `login_date` date DEFAULT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab13.sql',
+            sql: [
+              '-- 实验1：累计求和 —— OVER 里加 ORDER BY，窗口从「整块」变成「从开头到当前行」',
+              'SELECT name, hire_date, salary, SUM(salary) OVER () AS total, SUM(salary) OVER (ORDER BY hire_date) AS running_total FROM employees ORDER BY hire_date;  -- total 每行都是 106500；running_total 22000→…→106500',
+              '-- 实验2：分组累计 —— PARTITION BY 管「跟谁比」，ORDER BY 管「谁在前」',
+              'SELECT name, dept, salary, SUM(salary) OVER (PARTITION BY dept ORDER BY salary DESC) AS dept_running FROM employees ORDER BY dept, salary DESC;  -- MKT 11000→21000；RD 22000→40000→55000；SALES 12000→21500→30500',
+              '-- 实验3（本节核心）：默认窗口是 RANGE（按值），显式 ROWS 才按行',
+              "DROP TABLE IF EXISTS daily_sales; CREATE TABLE daily_sales (day INT, amount INT); INSERT INTO daily_sales VALUES (1,100),(1,50),(2,30),(3,20); SELECT day, amount, SUM(amount) OVER (ORDER BY day) AS rng, SUM(amount) OVER (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS rws, SUM(amount) OVER () AS total FROM daily_sales ORDER BY day, amount DESC;  -- rng=150,150,180,200；rws=100,150,180,200；total 全 200",
+              '-- 实验4：滑动窗口 —— ROWS BETWEEN 2 PRECEDING AND CURRENT ROW 取最近 3 次雇佣的移动平均',
+              'SELECT name, hire_date, salary, ROUND(AVG(salary) OVER (ORDER BY hire_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)) AS ma3 FROM employees ORDER BY hire_date;  -- 22000, 20000, 18333, 14667, 12667, 11000, 10333, 9500（窗口不足不补 NULL）',
+              '-- 实验5：LAG / LEAD 取前后行 + 环比差值',
+              'SELECT name, hire_date, salary, LAG(salary) OVER (ORDER BY hire_date) AS prev_sal, LEAD(salary) OVER (ORDER BY hire_date) AS next_sal, salary - LAG(salary) OVER (ORDER BY hire_date) AS diff FROM employees ORDER BY hire_date;  -- 第一行 prev_sal/diff 为 NULL、最后一行 next_sal 为 NULL',
+              '-- 实验6：造 logins 表（uid1 连续3天、uid2 连续4天、uid3 只有2天、uid4 全断开）',
+              "DROP TABLE IF EXISTS logins; CREATE TABLE logins (user_id INT, login_date DATE); INSERT INTO logins VALUES (1,'2026-09-01'),(1,'2026-09-02'),(1,'2026-09-03'),(1,'2026-09-07'),(2,'2026-09-01'),(2,'2026-09-03'),(2,'2026-09-04'),(2,'2026-09-05'),(2,'2026-09-06'),(3,'2026-09-01'),(3,'2026-09-02'),(4,'2026-09-02'),(4,'2026-09-04'),(4,'2026-09-06'); SELECT * FROM logins ORDER BY user_id, login_date;  -- 14 行",
+              '-- 实验7：核心机关 —— 日期减行号得到「段号」grp（同一段连续共享同一个 grp）',
+              'SELECT user_id, login_date, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY login_date) AS rn, login_date - INTERVAL ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY login_date) DAY AS grp FROM logins ORDER BY user_id, login_date;  -- uid1: 08-31,08-31,08-31,09-03；uid2: 08-31,09-01×4；uid3: 08-31×2；uid4: 09-01,09-02,09-03',
+              '-- 实验8：套 GROUP BY，找出连续登录 >= 3 天的用户（只返回 uid1 三天、uid2 四天）',
+              'SELECT user_id, MIN(login_date) AS start_date, MAX(login_date) AS end_date, COUNT(*) AS days FROM (SELECT user_id, login_date, login_date - INTERVAL ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY login_date) DAY AS grp FROM logins) t GROUP BY user_id, grp HAVING COUNT(*) >= 3 ORDER BY user_id;',
+              '-- 实验9（检验 Q4 的陷阱，学生自己动手验证）：插入重复行 → grp 常数性被破坏 → 一段连续被切碎',
+              "INSERT INTO logins VALUES (1,'2026-09-02'); -- 之后：ROW_NUMBER vs RANK 出现差异（rn 1,2,3,4,5 vs rk 1,2,2,4,5）；grp 变成 08-31,08-31,08-30,08-30,09-02，「连续 3 天」被切成两段「2 天」；修法：FROM (SELECT DISTINCT user_id, login_date FROM logins) d，去重后恢复为 3 天"
+            ],
+            expected: '实验1 → total 每行都是 106500；running_total = 22000 / 40000 / 55000 / 66000 / 78000 / 88000 / 97000 / 106500（学生预测「最后一行与 total 相等」✅）；实验2 → MKT 11000→21000、RD 22000→40000→55000、SALES 12000→21500→30500；实验3 → rng=150/150/180/200（day=1 两行都拿 150）、rws=100/150/180/200、total 全 200（学生预测 150,150,180,200 ✅）；实验4 → 22000 / 20000 / 18333 / 14667 / 12667 / 11000 / 10333 / 9500；实验5 → 第一行 prev_sal 与 diff 为 NULL、最后一行 next_sal 为 NULL；实验6 → 14 行；实验7 → grp：uid1 08-31,08-31,08-31,09-03；uid2 08-31,09-01,09-01,09-01,09-01；uid3 08-31,08-31；uid4 09-01,09-02,09-03；实验8 → 2 行（uid1 09-01~09-03 三天、uid2 09-03~09-06 四天）；检验 Q4 → 重复行让 uid1 的 grp 序列变成 08-31,08-31,08-30,08-30,09-02，「连续 3 天」被切成两段「2 天」；加 DISTINCT 去重后恢复为 3 天',
+            errors: '实验1 若 running_total 每行都一样 → ORDER BY 漏了；实验2 若累计跨部门连在一起 → PARTITION BY dept 漏了；实验2 若不按薪水降序 → DESC 漏了（D2 检验刚踩过）；实验3 若 rng 与 rws 完全一样 → ROWS 不小心写进第一条了；实验3 若 rws 两行是 150/100 → 不是错，并列时 ROWS 的行序不确定（D2 那条：并列时顺序由引擎决定）；实验4 若 ma3 前两行为 NULL → 写成了 RANGE 2 PRECEDING（那是按值往前 2 个刻度，不是按行）；实验5 若 diff 第一行不是 NULL → 用了 IFNULL 之类的处理（默认就是 NULL）；实验8 若 uid3 也被选出来 → HAVING 条件写错；检验 Q4 若去重后仍被切碎 → DISTINCT 加错了位置（必须在最内层、窗口函数之前去重）',
+            evidence: '四批全部与预期一致：实验1 → total 106500×8；running_total 22000 / 40000 / 55000 / 66000 / 78000 / 88000 / 97000 / 106500；实验2 → MKT 11000/21000、RD 22000/40000/55000、SALES 12000/21500/30500；实验3 → rng 150/150/180/200、rws 100/150/180/200、total 200×4（学生预测完全正确）；实验4 → ma3 22000 / 20000 / 18333 / 14667 / 12667 / 11000 / 10333 / 9500；实验5 → 第一行 prev_sal=NULL、diff=NULL，最后一行 next_sal=NULL，中间 diff 为 -4000 / -3000 / -4000 / 1000 / -2000 / -1000 / 500；实验6 → 14 行；实验7 → grp 与预期逐行一致（uid1 08-31×3 + 09-03；uid2 08-31 + 09-01×4；uid3 08-31×2；uid4 三个不同值）；实验8 → uid1 09-01~09-03=3 天、uid2 09-03~09-06=4 天；检验 Q3 → 把门槛改成 >= 4 后只返回 uid2（一次写对）；检验 Q4 → 插入重复行后 rn 1,2,3,4,5 vs rk 1,2,2,4,5，grp 被切碎（08-31,08-31,08-30,08-30,09-02），去重版恢复正确。检验 4 题（含 2 题重做 + 2 个追问）后全部通过'
+          },
+          findings: [
+            'OVER 里一旦写了 ORDER BY，默认窗口帧就变成 RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW（从分组第一行 → 当前行）—— 所以 SUM 从「整块」变成了「累计」。学生第一轮把它写成 …AND UNBOUNDED FOLLOWING，属关键错误（那会成为「从开头到结尾」= 每行都一样，累计效果消失）',
+            '同一个聚合函数的三种窗口范围（一张表说清）：SUM(x) OVER () = 整块（每行都是总和）；SUM(x) OVER (ORDER BY c) = 累计（默认 RANGE）；SUM(x) OVER (ORDER BY c ROWS BETWEEN …) = 你指定的任意区间',
+            'PARTITION BY 与 ORDER BY 的分工：PARTITION BY 决定「跟谁比」（每组独立），ORDER BY 决定「谁在前」+ 「窗口开到哪」',
+            '⚠️ 默认窗口是 RANGE 不是 ROWS：RANGE 按【值】划边界（所有 day <= 当前 day 的行都在窗口里），ROWS 按【行】划边界（物理位置）。没有并列时两者一样，有并列时 RANGE 会把同值行一锅端进来 —— 实验 3 里 day=1 的两行都拿到 150 就是这么来的',
+            'RANGE / ROWS 速记：RANGE 认「值」（像「同一天出生的人一起办」），ROWS 认「行」（像「从第一行数到我这行」）',
+            'ROWS 在并列时行序不确定（D2 的结论在这里复用：并列时顺序由引擎决定）→ 想让 ROWS 稳定，ORDER BY 里要再加一个能唯一排序的列（如 ORDER BY day, amount DESC）',
+            'ROWS BETWEEN 的五个端点：UNBOUNDED PRECEDING / n PRECEDING / CURRENT ROW / n FOLLOWING / UNBOUNDED FOLLOWING；窗口不足时【有多少算多少、不补 NULL】',
+            'LAG / LEAD 把邻居的值原样搬到当前行，边界之外是 NULL → 参与比较运算会得 UNKNOWN（A3 三值逻辑），所以 WHERE diff > 0 会静默丢掉边界行',
+            '⭐ 连续 N 天的机关：日期与行号是两个同步增长的计数器（每天都 +1），连续时相减得【常数】；断档时日期跳了而行号只 +1，差就变 → grp 就是这一段连续的「身份证」',
+            '连续 N 天三件套：ROW_NUMBER 算行号 → 日期减行号得到 grp → GROUP BY user_id, grp + HAVING COUNT(*) >= N（MIN/MAX 顺带给出起止日期）',
+            '⚠️ 重复行会破坏 grp 的常数性：同一天两条记录让行号多 +1 而日期没变 → 一段连续被切成两段（uid1 的「3 天」变成两段「2 天」）→ 连续 N 天的题必须先按 (user_id, login_date) 去重（DISTINCT 或 GROUP BY），且去重必须发生在最内层窗口函数之前',
+            'D2 结论在北节课再次生效：logins 里 (user_id, login_date) 唯一时 ROW_NUMBER 与 RANK 输出完全一致；一旦插入重复行，立刻分家（rn 1,2,3,4,5 vs rk 1,2,2,4,5）—— 「差异只在有并列时出现」是一条贯穿两节课的规则'
+          ],
+          pitfalls: [
+            '（学生）Q1 把默认窗口帧写成 RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING（正确是 AND CURRENT ROW）—— 端点错一个词，含义从「累计」变成「整块」；重做时端点改对但漏写了 ROW（CURRENT ROW 是完整两词）',
+            '（学生）两次重做都只交 SQL、跳过「为什么」：Q1 的「如果是 UNBOUNDED FOLLOWING 会长什么样」、Q4 的「为什么必须去重」都空着 —— 已在收尾时明确指出：面试官几乎必问「为什么这么写」，会写不等于会讲；补答后两问都答对',
+            '（学生）实验 7 的 grp 预测没写（我明确要求了）—— 前面几批预测都认真写了（实验 1 和实验 3 的预测还完全正确），这次跳过',
+            '（AI）本节四条关键实验在讲前全部预演通过，没有发现教案错误 —— 对比 D1 / D2 各抓到一处，说明「先自己跑一遍」这个习惯在起作用'
+          ],
+          quiz: [
+            {
+              q: '（Q1 原理）SUM(salary) OVER () 和 SUM(salary) OVER (ORDER BY hire_date) 的差别在哪？为什么加一个 ORDER BY 含义就变了？请写出默认窗口帧的全名。',
+              mine: '1、SUM(salary) OVER ()是计算所有的总和，而SUM(salary) OVER (ORDER BY hire_date)是从第一个数据到当前位置的累积和。加上order by改变了窗口的范围。默认窗口帧是：RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING。',
+              note: '❌ 前半全对（两种含义、窗口范围被改变），但默认帧的【终点写错】了：正确的是 RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW。写成 UNBOUNDED FOLLOWING 含义完全不同 —— 那是「从开头一直到结尾」= 整块，累计效果会完全消失（每行都返回 106500，跟 OVER () 一样）。已用「如果默认是 FOLLOWING 会长什么样」这问让他自己发现错误。'
+            },
+            {
+              q: '（Q2 原理）为什么 SUM(amount) OVER (ORDER BY day) 会给 day=1 的两行都返回 150，而 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW 是 100 / 150？RANGE 与 ROWS 划边界的依据有什么不同？',
+              mine: '2、因为默认窗口帧用的是RANGE，会把order by的字段相同的值当作同一个窗口帧对待？也就是第一天的两行被当成了同一帧？而rows是按照行来计算的，每行都会单独算一次。',
+              note: '✅ 通过。方向完全正确（RANGE 把同值行当同一帧、ROWS 逐行算）。精确化一句：RANGE 的边界是「值」—— 窗口 = 所有 day <= 当前行的 day 的行，所以 day=1 的两行互相看得见；ROWS 的边界是「行」—— 从第一行数到「我这一行」为止。'
+            },
+            {
+              q: '（Q3 动手）从 logins 里手写一条 SQL，找出连续登录 >= 4 天的用户（输出 user_id / 起始 / 结束 / 天数）。',
+              mine: '（直接写出完整 SQL，把 HAVING COUNT(*) >= 3 改成 >= 4）→ 输出：uid2 | 2026-09-03 | 2026-09-06 | 4',
+              note: '✅ 正确，一次写对（三件套零件全对：ROW_NUMBER → 日期减行号 → GROUP BY + HAVING）。结果也对：只有 uid2 的四天段满足，uid1 的三天段被挡在门外。'
+            },
+            {
+              q: '（Q4 综合·面试陷阱）如果同一用户在同一天有两条登录记录：① ROW_NUMBER 与 RANK 还会一样吗？② 会破坏「连续 N 天」的判断吗？会的话怎么修？',
+              mine: '4、此时就`ROW_NUMBER()` 和 `RANK()`不一样了。会破坏的。但我想不到怎么改。',
+              note: '①✅ ②半对 —— 他说「会破坏」但想不出修法。已用他【自己插入的重复行】跑出现场：rn 1,2,3,4,5 vs rk 1,2,2,4,5（并列出现，两函数分家）；grp 变成 08-31,08-31,08-30,08-30,09-02 —— 日期没动但行号 +1，「两个同步增长的计数器」前提被破坏，一段连续被切成两段 2 天。修法：在【最内层、窗口函数之前】先按 (user_id, login_date) 去重（FROM (SELECT DISTINCT user_id, login_date FROM logins) d），去重后恢复正确（uid1 三天）。重做时写出了去重版 SQL 并跑通 ✅，但「为什么必须去重」一问仍未答，已追加追问。'
+            },
+            {
+              q: '（Q1 重做 + Q4 重做后的两道追问）① 如果默认帧真的是 UNBOUNDED FOLLOWING，这一列会长什么样？为什么？② 为什么连续 N 天必须先按 (user_id, login_date) 去重？',
+              mine: '① 这一列所有值都相等。每个都窗口变成了从开始到结束了。② 不去冲（重），重复的数据就会导致grp算出来不对，破坏了连续性。',
+              note: '✅ 两问都答对（虽然措辞粗糙）。① 窗口变成「从开始到结束」= 整块 → 每行都是总和；② 重复数据让 grp 算错、破坏连续性 —— 抓住了「行号与日期不再同步」这个根因。两题重做后全部通过。'
+            }
+          ]
         }
       ]
     },
@@ -2332,7 +2452,7 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'E1',
           title: 'INSERT / UPDATE / DELETE 的坑',
-          status: 'todo',
+          status: 'doing',
           weight: '中',
           estimate: '45 min',
           plan: '亲身经历一次"UPDATE 忘写 WHERE"，理解为什么它比想象中危险。',
