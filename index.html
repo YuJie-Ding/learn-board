@@ -2189,15 +2189,46 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'D2',
           title: '窗口函数入门：ROW_NUMBER / RANK / DENSE_RANK',
-          status: 'doing',
+          status: 'done',
           weight: '高',
           estimate: '60 min',
+          actual: '40 min（0.67×）',
           plan: '三个排名函数的差别要能一眼说出，并能用它解分组取 TopN。',
+          metrics: [
+            '实际用时：2026-10-01 16:28 开讲 ~ 检验通过 · 40 min（规划 60 min，0.67×）',
+            '分四批：批次一 建 scores 表 + 三函数同框对比（实验 1~2）→ 批次二 PARTITION BY 分堆 + 去掉窗口 ORDER BY 的反直觉对照（实验 3~4）→ 批次三 窗口函数撞 WHERE 的墙（实验 5 / 5b / 6）→ 批次四 GROUP BY vs 窗口 + 分组取 TopN 两种语义（实验 7~9）',
+            '讲前预演又修掉一处教案错误：原实验 4 注释写「去掉窗口 ORDER BY 后三列全变 1」，实测 ROW_NUMBER 仍给出 1..n（见 pitfalls）',
+            '检验：4 题里 Q1 / Q3 一次通过；Q2 因 OVER 里漏了 DESC 返回成「薪水最低的 2 个人」、Q4 答不出「窗口函数在哪一步产生」，两题重做后通过',
+            '扩展：Q2 换 employees（无并列）做手写题，正好复现「差异只在并列时出现」的结论'
+          ],
           concepts: [
             'ROW_NUMBER 不重复不跳号；RANK 并列跳号；DENSE_RANK 并列不跳号',
             'OVER (PARTITION BY ... ORDER BY ...) 的含义',
             '窗口函数不能出现在 WHERE 里（执行顺序：在 SELECT 阶段才算）'
           ],
+          dataset: {
+            label: '实验开始前的数据（scores 由本节实验 1 现场建出来）',
+            note: '本节唯一的道具就是 scores 里那些【故意造出来的并列】：A 班 90/90/90 三连并列、B 班 88/88 两连并列。没有并列的话，ROW_NUMBER / RANK / DENSE_RANK 三个函数会输出一模一样，这节课就白上了（拿 employees 的 salary 对照就能验证 —— 它没有并列，Q2 里两种函数结果完全相同）。',
+            tables: [
+              {
+                name: 'scores',
+                columns: ['id', 'name', 'class', 'score'],
+                focus: ['score'],
+                rows: [
+                  [1, 'Alice', 'A', 95],
+                  [2, 'Bob', 'A', 90],
+                  [3, 'Carol', 'A', 90],
+                  [4, 'Dave', 'A', 90],
+                  [5, 'Eve', 'A', 80],
+                  [6, 'Frank', 'B', 88],
+                  [7, 'Grace', 'B', 88],
+                  [8, 'Henry', 'B', 70]
+                ],
+                note: 'A 班 5 人、B 班 3 人。三个 90 分是 RANK 跳号的来源（并列第 2 → 下一名直接跳到 5）；Eve 的 80 分是实验 9 的主角：她的 rk=5 会被「前 3 名」挡掉，而 dr=3 又会被放进来',
+                ddl: "CREATE TABLE `scores` (\n  `id` int NOT NULL,\n  `name` varchar(20) DEFAULT NULL,\n  `class` varchar(10) DEFAULT NULL,\n  `score` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
           experiment: {
             file: 'lab12.sql',
             sql: [
@@ -2227,16 +2258,55 @@ window.ROADMAP_DATA.levels.push({
             ],
             expected: '实验1 → 8 行（A 班 95/90/90/90/80、B 班 88/88/70）；实验2 → rn=1..8、rk=1,2,2,2,5,5,7,8、dr=1,2,2,2,3,3,4,5；实验3 → A 班内部 1..5、B 班内部 1..3，仍是 8 行（PARTITION BY 只影响编号、不影响行数）；实验4 → rk 全是 1，但 rn 仍为 1,2,3,4,5（讲前预演实测：原教案预测「三列全变 1」是错的）；实验5 → ERROR 3593 You cannot use the window function \'rank\' in this context；实验5b → ERROR 1054 Unknown column \'rk\' in \'where clause\'；实验6 → 6 行（A 班 Alice 1 + Bob/Carol/Dave 2,2,2；B 班 Frank/Grace 1,1）；实验7 → GROUP BY 2 行（A 5 人 89.00 / B 3 人 82.00）vs 窗口函数 8 行（每行都带 cnt=5/3、avg=89.00/82.00）；实验8 → ROW_NUMBER 版 4 行、RANK 版 6 行；实验9 → RANK 版 7 行、DENSE_RANK 版 8 行',
             errors: '实验2 若 rn 列有跳号，检查是不是把 ROW_NUMBER 写成了 RANK；实验3 若行数变成 2 行，说明用成了 GROUP BY（PARTITION BY 不折叠行）；实验4 若 rk 不是全 1，确认 OVER() 里真的没有 ORDER BY；实验5 若只是报语法错而不是 3593，把原文发我（版本差异）；实验6 若行数超过 6，检查是不是漏了外层的 WHERE t.rk <= 2（派生表只是把窗口函数算出来，过滤还得靠外层）；实验8 若两版行数一样，确认 RANK 版用的是 RANK() 而不是 ROW_NUMBER()',
-            evidence: ''
+            evidence: '四批全部与预期一致（其中实验 4 是学生预测错、被实测推翻，见 pitfalls）：实验1 → 8 行（A 班 95/90/90/90/80、B 班 88/88/70）；实验2 → rn=1..8、rk=1,2,2,2,5,5,7,8、dr=1,2,2,2,3,3,4,5；实验3 → 8 行（A 班 rn 1..5、B 班 rn 1..3；rk：A 1,2,2,2,5 / B 1,1,3；dr：A 1,2,2,2,3 / B 1,1,2）；实验4 → 【rk 全为 1】而 rn 仍为 1,2,3,4,5（学生预测「与实验 3 一样」被推翻）；实验5 → ERROR 3593 (HY000) You cannot use the window function \'rank\' in this context；实验5b → ERROR 1054 (42S22) Unknown column \'rk\' in \'where clause\'；实验6 → 6 行（A 班 Alice 1 + Bob/Carol/Dave 2,2,2；B 班 Frank/Grace 1,1）；实验7 → GROUP BY 2 行（A 5 人 89.00 / B 3 人 82.00）vs 窗口函数 8 行（cnt=5/3、avg=89.00/82.00）；实验8 → ROW_NUMBER 版 4 行、RANK 版 6 行；实验9 → RANK 版 7 行（A 班 Eve 的 rk=5 被挡在门外）、DENSE_RANK 版 8 行（Eve 以 dr=3 进来）。检验 4 题（含 2 题重做）后全部通过'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            '窗口函数 = 【不折叠行】的组内统计（给每一行贴一栏批注）；GROUP BY 是【折叠】（8 行 → 2 行）。行数变不变是两者的分水岭 —— 折叠之后「谁是 A 班第 2 名」已经无处可问，这就是窗口函数能做组内排名、而 GROUP BY 做不到的原因',
+            '三个排名函数的数法：ROW_NUMBER 数「你是第几行」（不做比较、不重复不跳号）；RANK 数「比你高的人数」+1（并列同名、跳号）；DENSE_RANK 数「比你高的分数有几种」+1（并列同名、不跳号）',
+            '三者【只在有并列时】才不一样：employees 的 salary 没有并列，Q2 里 RANK 与 ROW_NUMBER 结果完全相同 —— 实验设计上必须有并列才能区分假设（scores 表就是为此造的）',
+            '⚠️ OVER 里的 ORDER BY 是【裁决规则】，不是【打印顺序】：去掉它等于宣布「这一堆行彼此不分先后（全体并列）」→ 需要比较的 RANK 只能给全 1；而 ROW_NUMBER 不做比较、照旧往下编号（1..n）。学生预测「与实验 3 一样」被实验推翻',
+            '外层 ORDER BY 只管「怎么打印」，完全不参与排名 —— 它是执行顺序的最后一步（D1 学过）。所以外层怎么排，rn / rk 的取值都不受影响',
+            'ROW_NUMBER 在并列时给出的具体编号是【不确定的】（由执行计划/扫描顺序决定）；实验 2 里 Bob=2 / Carol=3 / Dave=4 只是 MySQL 恰好按主键顺序扫。想让它稳定，窗口的 ORDER BY 必须能唯一决定顺序（如 ORDER BY score DESC, id）',
+            'PARTITION BY 只改变「跟谁比」，不改变行数：实验 3 仍是 8 行，A 班内部 1..5、B 班内部 1..3 各自从头编号',
+            '窗口函数和别名一样是在【SELECT 阶段】产生的值 → WHERE 看不见它：直接写 RANK() OVER (...) 报 ERROR 3593，写别名 rk 报 ERROR 1054 —— 与 D1 的 WHERE annual > 150000 是同一个病根',
+            '正确姿势是派生表：内层先跑完整个 SELECT（rk 已经算成一列），外层 WHERE 把 rk 当【普通列】筛。这不是绕过规则，而是把「算」放到了「筛」之前 —— 与 C3 / B2 的派生表套路完全一致',
+            '分组取 TopN 三件套：派生表里用窗口函数算排名 → 外层 WHERE 筛排名 → 选哪个排名函数由【业务语义】决定',
+            'ROW_NUMBER 是【名额制】（严格 N 个，并列的人还得再决胜负 —— 所以要保证 ORDER BY 唯一确定顺序）；RANK 是【分数线制】（达到该分数的都进来）。实验 8 实测：同一个「每组前 2 名」，ROW_NUMBER 4 行 vs RANK 6 行（A 班并列第 2 的三人全进来）',
+            '跳号的真实后果（实验 9）：门槛放宽到「前 3 名」时，A 班 Eve 的 rk=5 被 RANK 挡在门外（7 行），而 dr=3 又让她被 DENSE_RANK 放进来（8 行）—— 同一个「前 3 名」写法，两个函数选出的人不一样'
+          ],
+          pitfalls: [
+            '（学生）Q2 手写 TopN 时 OVER (ORDER BY salary) 漏了 DESC —— 返回的成了「薪水最低的 2 个人」，与题目要求的「最高」完全相反。教训：OVER 里的排序方向是裁决规则的一部分（呼应批次二实验 4 那个反直觉对照）',
+            '（学生）Q4 第一轮只答出「WHERE 在 SELECT 之前」，答不出「窗口函数是在哪一步产生的」—— 已补讲：窗口函数与别名同在 SELECT 阶段诞生；重做时表述正确（「窗口函数的值在 select 执行产生的…外包一层就是 select 结果出来后再做筛选」）',
+            '（学生）批次二实验 4 预测「与实验 3 结果一样」—— 猜错，正好被实测推翻（RANK 全 1、ROW_NUMBER 照旧编号）；这次猜错比直接听结论的印象深得多',
+            '（AI）原教案实验 4 注释写「预期：三列全变 1」—— 讲前预演实测发现 ROW_NUMBER 并非如此（没有 ORDER BY 它仍然给 1..n），已修正 lab12.sql 注释并把这条写进讲解（B1 / C2 / D1 那条老规矩第四次立功）'
+          ],
+          quiz: [
+            {
+              q: '（Q1 原理）三个排名函数的输出在什么情况下会不一样？各用一句话说清它们的数法。业务场景是「每个部门只有 3 个晋升名额」，选哪个？为什么？',
+              mine: '1、我选ROW_NUMBER。因为他没有并列排名的，一定能选出前3名。',
+              note: '✅ 正确。名额制就是 ROW_NUMBER 的语义：名额是硬的，并列的人必须再决一次胜负。补充一个面试常追问的点：ROW_NUMBER 在并列时是硬分先后的，所以必须保证「分先后的依据是确定的」（比如 ORDER BY score DESC, id），否则「谁被挤掉」变成引擎随机决定。'
+            },
+            {
+              q: '（Q2 动手）换 employees 表，手写一条 SQL：按部门分组，取出每个部门薪水最高的 2 个人，输出 dept / name / salary / 排名列。说明为什么选这个函数，然后跑出来。',
+              mine: '2、select t.dept, t.name, t.salary, t.rk from ( select dept, name, salary, RANK() over (partition by dept order by salary) as rk from employees ) t where t.rk <= 2; —— 输出 MKT Frank 10000 / Grace 11000、RD Alice 15000 / Bob 18000、SALES Dave 9000 / Henry 9500。我认为如果有多个并列的，也应该把它们列出来。但是如果有2个以上并列第1，那就不再需要列出来后一个了，rank正好符合这个。',
+              note: '⚠️ 结构全对（派生表 + PARTITION BY + 外层 WHERE，完全照实验 6 的套路），但【漏了 DESC】—— 返回的是「薪水最低的 2 个人」，与题目要求完全相反（MKT 里 Frank 10000 排第 1 而不是 Grace 11000）。已按批次二实验 4 的教训补讲：OVER 里的 ORDER BY 是裁决规则，排序方向直接决定谁是第 1 名。重做加 DESC 后输出正确（MKT Grace 11000/Frank 10000、RD Eve 22000/Bob 18000、SALES Carol 12000/Henry 9500）。关于函数选择：他选 RANK 的理由（并列的应全部列出）是【分数线制】，合法；与 Q1 的名额制是两个不同场景，两个答案都对。另注：employees.salary 没有并列，所以本次选 RANK 或 ROW_NUMBER 结果完全相同 —— 恰好复现实验 2 的结论；MKT 只有 2 人，「前 2 名」等于全班，属数据巧合。'
+            },
+            {
+              q: '（Q3 复习 D1）SELECT name, bonus FROM employees ORDER BY bonus; —— NULL 行排在哪里？为什么？要求它们固定排在最后、非 NULL 行按 bonus 升序，怎么写？',
+              mine: '3、null会排在第一，因为升序null是最小的。SELECT name, bonus, (bonus is null) as bs FROM employees ORDER BY bonus is null, bonus;',
+              note: '✅ 全对，一次通过。升序把 NULL 当最小值排最前；固定赶末尾用 (bonus IS NULL) 当第一排序键（NULL 行得 1 被推到后面）—— D1 实验 4 那一招，记得很牢。'
+            },
+            {
+              q: '（Q4 复习 A1 + C3）为什么 SELECT name, RANK() OVER (ORDER BY score DESC) AS rk FROM scores WHERE rk <= 2; 报 Unknown column？请从两个角度解释：① WHERE 与 SELECT 的执行顺序 ② 窗口函数是在哪一步算出来的值。再说出正确的两步写法。',
+              mine: '4、1、where在select之前。2、不知道。' + '（写出正确写法：select t.name, t.rk from (SELECT name, RANK() OVER (ORDER BY score DESC) AS rk FROM scores) t WHERE t.rk <= 2;）\n—— 重做：2、窗口函数的值在select执行产生的，而where在select之前。外包一层就是select结果出来后再做筛选。',
+              note: '第一轮只答出①（WHERE 在 SELECT 之前），②没答出来 —— 已补讲：窗口函数和 salary * 12 一样是【列表达式】，在 SELECT 阶段才算出来；两个角度其实是同一件事（别名 rk 也是 SELECT 阶段才产生的名字）。但【正确写法一次就写对了】✅（派生表 + 外层 WHERE），说明「怎么用」已经会了，缺的是「为什么」。重做时表述正确，通过。'
+            }
+          ]
         },
         {
           id: 'D3',
           title: '窗口函数进阶：SUM OVER 与连续 N 天',
-          status: 'todo',
+          status: 'doing',
           weight: '高',
           estimate: '60 min',
           plan: '掌握累计 / 滑动窗口，以及"连续 N 天登录"这类经典题的套路。',
