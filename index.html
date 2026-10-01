@@ -2042,51 +2042,154 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'D1',
           title: 'ORDER BY、LIMIT 与分页',
-          status: 'doing',
+          status: 'done',
           weight: '中',
           estimate: '45 min',
+          actual: '29 min（0.64×）',
           plan: '掌握排序和多方言分页写法，为 L6 的深分页优化埋点。',
+          metrics: [
+            '实际用时：2026-10-01 15:36 开讲 ~ 16:05 检验通过 · 29 min（规划 45 min，0.64×）',
+            '计时修正：pacing.jsonl 里 09-20 的两条 D1 est 记录（共 26 min）经会话核对为早期误标（那天讲的是 A2 WHERE / HAVING），已删除、原文件备份为 pacing.jsonl.bak；D1 只记今天这一段',
+            '分三批：批次一 别名抽查 + WHERE 报错 + NULL 排序位置（实验 1~4）→ 批次二 NULL 赶到末尾 + 三页分页（实验 5~8）→ 批次三 2 万行表用 Handler 计数器量化深浅分页（实验 9~14）',
+            '讲前预演发现教案缺陷：原实验想用 ORDER BY val（无索引列）测 Handler_read_next 来对比深浅分页，实际增量恒为 0 —— 已改成 ORDER BY id 并补上无索引对照组',
+            '检验：4 题里 Q1 / Q4 一次答对；Q2（漏 LIMIT 10、没做预测）、Q3（执行顺序答错）重做后通过' 
+          ],
           concepts: [
             'ORDER BY 可以用 SELECT 别名（因为排在 SELECT 之后）',
             'LIMIT offset, size 的坑：offset 越大越慢',
             '排序字段有 NULL 时，MySQL 把 NULL 排在最小'
           ],
+          dataset: {
+            label: '实验开始前的数据（employees 8 行；big_nums 由本节实验 6 现场造出）',
+            note: '本节两条主线各有一个道具：① employees.bonus 有 4 行 NULL —— 用来验证「排序时 NULL 排哪儿」；② big_nums 2 万行 —— 用来把「深分页到底读了多少行」量化成 Handler 计数器。',
+            tables: [
+              {
+                name: 'employees',
+                columns: ['id', 'name', 'dept', 'salary', 'hire_date', 'bonus'],
+                focus: ['bonus'],
+                rows: [
+                  [1, 'Alice', 'RD', 15000, '2021-03-01', 2000],
+                  [2, 'Bob', 'RD', 18000, '2020-07-15', 2000],
+                  [3, 'Carol', 'SALES', 12000, '2022-01-10', 1000],
+                  [4, 'Dave', 'SALES', 9000, '2023-05-20', null],
+                  [5, 'Eve', 'RD', 22000, '2019-11-01', 2000],
+                  [6, 'Frank', 'MKT', 10000, '2022-09-01', null],
+                  [7, 'Grace', 'MKT', 11000, '2021-12-31', null],
+                  [8, 'Henry', 'SALES', 9500, '2024-02-01', null]
+                ],
+                note: 'bonus 恰好 4 行 NULL（Dave / Frank / Grace / Henry）+ 4 行有值（1000 / 2000 / 2000 / 2000）—— 升序时 4 行 NULL 全挤在最前面，一眼就能看见。注意 salary 最高的是 Eve（22000，年包 264000），不是 Alice（15000）。'
+              },
+              {
+                name: 'big_nums',
+                columns: ['id', 'val'],
+                focus: ['id'],
+                rows: [
+                  [1, 1],
+                  [2, 2],
+                  [3, 3],
+                  ['…', '…'],
+                  [19999, 19999],
+                  [20000, 20000]
+                ],
+                note: '本节现场用 WITH RECURSIVE 生成，共 20000 行，id 与 val 完全相等（1..20000），中间行省略。关键设定：id 是主键（有索引）、val 上没有任何索引 —— 这一个差别决定了 ORDER BY id 能沿索引顺序读、ORDER BY val 只能全表扫 + filesort。',
+                ddl: "CREATE TABLE `big_nums` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `val` int NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
           experiment: {
             file: 'lab11.sql',
             sql: [
               '-- 实验1：ORDER BY 能用 SELECT 别名（ORDER BY 排在 SELECT 之后执行）',
-              'SELECT name, salary * 12 AS annual FROM employees ORDER BY annual DESC;  -- 8 行，按年包降序',
-              '-- 实验2：对照 —— WHERE 不能用别名（故意的报错：WHERE 在 SELECT 之前执行）',
+              'SELECT name, salary * 12 AS annual FROM employees ORDER BY annual DESC;  -- 8 行，Eve 264000 排第一',
+              '-- 实验2：故意的 —— WHERE 不能用别名（WHERE 在 SELECT 之前执行）',
               'SELECT name, salary * 12 AS annual FROM employees WHERE annual > 150000;  -- ERROR 1054 Unknown column',
               '-- 实验3：NULL 在排序里的默认位置（bonus 有 4 行 NULL）',
-              'SELECT name, bonus FROM employees ORDER BY bonus;  -- 4 行 NULL 在最前（升序把 NULL 当最小）',
+              'SELECT name, bonus FROM employees ORDER BY bonus;       -- 4 行 NULL 在最前（升序把 NULL 当最小）',
               'SELECT name, bonus FROM employees ORDER BY bonus DESC;  -- 4 行 NULL 在最后',
-              '-- 实验4：把 NULL 固定赶到末尾（bonus IS NULL 算出 0/1）',
-              'SELECT name, bonus, (bonus IS NULL) AS is_null FROM employees ORDER BY bonus IS NULL, bonus;  -- NULL 行排最后',
+              '-- 实验4：把 NULL 固定赶到末尾（bonus IS NULL 算出 0/1 当第一排序键）',
+              'SELECT name, bonus, (bonus IS NULL) AS is_null FROM employees ORDER BY bonus IS NULL, bonus;  -- 4 个 1 全在末尾',
               '-- 实验5：基本分页 LIMIT offset, size（每页 3 条）',
-              'SELECT id, name, salary FROM employees ORDER BY salary DESC LIMIT 0, 3;  -- 第 1 页',
-              'SELECT id, name, salary FROM employees ORDER BY salary DESC LIMIT 3, 3;  -- 第 2 页',
-              'SELECT id, name, salary FROM employees ORDER BY salary DESC LIMIT 6, 3;  -- 第 3 页（只剩 2 行）',
-              '-- 实验6：造一张 2 万行的表，给 L6 的深分页优化埋点（这三条要一起跑）',
+              'SELECT id, name, salary FROM employees ORDER BY salary DESC LIMIT 0, 3;  -- 第 1 页 3 行',
+              'SELECT id, name, salary FROM employees ORDER BY salary DESC LIMIT 3, 3;  -- 第 2 页 3 行',
+              'SELECT id, name, salary FROM employees ORDER BY salary DESC LIMIT 6, 3;  -- 第 3 页 2 行',
+              '-- 实验6：造一张 2 万行的表（这三条要一起跑，SET 是会话级变量）',
               'SET SESSION cte_max_recursion_depth = 100000;',
               'DROP TABLE IF EXISTS big_nums; CREATE TABLE big_nums (id INT PRIMARY KEY AUTO_INCREMENT, val INT NOT NULL) ENGINE = InnoDB;',
-              'INSERT INTO big_nums (val) WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 20000) SELECT n FROM seq;  -- 20000 行',
-              '-- 实验7：同一页数据、offset 差 2000 倍，看扫描代价（Handler_read_next 是扫描行数的近似指标）',
-              "SHOW SESSION STATUS LIKE 'Handler_read_next'; SELECT id, val FROM big_nums ORDER BY val LIMIT 0, 10; SHOW SESSION STATUS LIKE 'Handler_read_next';  -- 两次差值很小",
-              "SHOW SESSION STATUS LIKE 'Handler_read_next'; SELECT id, val FROM big_nums ORDER BY val LIMIT 19990, 10; SHOW SESSION STATUS LIKE 'Handler_read_next';  -- 差值接近 20000"
+              'INSERT INTO big_nums (val) WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 20000) SELECT n FROM seq;  -- 20000 行，id = val',
+              '-- 实验7：深分页的代价（⚠️ 必须 ORDER BY id 走主键索引；三条一起跑，看 Handler_read_next 的差值）',
+              "SHOW SESSION STATUS LIKE 'Handler_read_next'; SELECT id, val FROM big_nums ORDER BY id LIMIT 0, 10; SHOW SESSION STATUS LIKE 'Handler_read_next';  -- 差值 ≈ 10",
+              "SHOW SESSION STATUS LIKE 'Handler_read_next'; SELECT id, val FROM big_nums ORDER BY id LIMIT 19990, 10; SHOW SESSION STATUS LIKE 'Handler_read_next';  -- 差值 ≈ 20000",
+              '-- 实验8：反直觉对照 —— val 没有索引，深浅分页【一样慢】（改用 Handler_read_rnd_next）',
+              "SHOW SESSION STATUS LIKE 'Handler_read_rnd_next'; SELECT id, val FROM big_nums ORDER BY val LIMIT 0, 10; SHOW SESSION STATUS LIKE 'Handler_read_rnd_next';  -- 差值 ≈ 20000（全表扫）",
+              "SHOW SESSION STATUS LIKE 'Handler_read_rnd_next'; SELECT id, val FROM big_nums ORDER BY val LIMIT 19990, 10; SHOW SESSION STATUS LIKE 'Handler_read_rnd_next';  -- 差值同样 ≈ 20000",
+              '-- 实验9：执行计划对照（Table scan + Sort  vs  Index scan）',
+              'EXPLAIN FORMAT=TREE SELECT id, val FROM big_nums ORDER BY val LIMIT 0, 10\\G   -- Table scan on big_nums + Sort',
+              'EXPLAIN FORMAT=TREE SELECT id, val FROM big_nums ORDER BY id LIMIT 19990, 10\\G  -- Index scan on big_nums using PRIMARY',
+              '-- 实验10：游标分页雏形（L6 正式讲）—— 不用 offset，直接跳到起点',
+              "SHOW SESSION STATUS LIKE 'Handler_read_next'; SELECT id, val FROM big_nums WHERE id > 19990 ORDER BY id LIMIT 10; SHOW SESSION STATUS LIKE 'Handler_read_next';  -- 差值 ≈ 9（对比实验7 的 19999）"
             ],
-            expected: '实验1 → 8 行，Eve（264000）排第一；实验2 → ERROR 1054 Unknown column \'annual\' in \'where clause\'（别名在 WHERE 里不可见）；实验3 → 升序时 4 行 NULL（Dave / Frank / Grace / Henry）在最前，降序时在最后；实验4 → is_null 列 4 行为 1、4 行为 0，NULL 行被赶到末尾；实验5 → 3 / 3 / 2 行，三页拼起来不重不漏；实验6 → big_nums 20000 行；实验7 → LIMIT 0, 10 时 Handler_read_next 增量约 10 上下，LIMIT 19990, 10 时增量接近 20000 —— 深分页要先把前面 19990 行扫过再丢掉',
-            errors: '实验2 若不报错，把实际输出发我（别的引擎或 MySQL 版本差异）；实验3 若 NULL 没排在最前，先 SELECT @@sql_mode 确认；实验6 若报 Recursive query aborted，是 cte_max_recursion_depth 没设成功（这条 SET 必须和 INSERT 在同一个会话里）；实验7 若两次增量一样大，确认 val 列上现在没有索引（没有索引才必然全表扫）',
-            evidence: '待学生贴出'
+            expected: '实验1 → 8 行，Eve（264000）排第一；实验2 → ERROR 1054 Unknown column \'annual\' in \'where clause\'（别名在 WHERE 里不可见）；实验3 → 升序时 4 行 NULL（Dave / Frank / Grace / Henry）在最前，降序时在最后；实验4 → is_null 列 4 个 1 在末尾、4 个 0 在前；实验5 → 3 / 3 / 2 行，三页拼起来不重不漏；实验6 → big_nums 20000 行；实验7 → 浅分页 Handler_read_next 增量 ≈ 10（实测 134→143）、深分页 ≈ 20000（实测 143→20142）—— 深分页要先把前面 19990 行走过再丢掉；实验8 → 两次 Handler_read_rnd_next 增量都是 ≈ 20000（实测 20073→40074→60075），无索引时深浅分页【没有区别】；实验9 → 前者是 Table scan on big_nums + Sort: big_nums.val，后者是 Index scan on big_nums using PRIMARY；实验10 → 10 行，Handler_read_next 增量 ≈ 9（实测 20142→20151）',
+            errors: '实验2 若不报错，把实际输出发我（别的引擎或 MySQL 版本差异）；实验3 若 NULL 没排在最前，先 SELECT @@sql_mode 确认；实验6 若报 Recursive query aborted，是 cte_max_recursion_depth 没设成功（这条 SET 必须和 INSERT 在同一个会话里）；⚠️ 实验7 必须用 ORDER BY id —— 若用 ORDER BY val，Handler_read_next 增量恒为 0（无索引排序走全表扫，记在 Handler_read_rnd_next 上），深浅分页区分不出来（AI 讲前预演踩过这个坑）；实验7 / 8 / 10 的 SHOW 必须和查询在同一个会话里 —— 计数器是会话级累计值，看的是差值不是绝对值；实验10 若得到上万，检查 WHERE id > 19990 是否写成了 OFFSET',
+            evidence: '学生逐条执行并贴出原始输出：实验1 → 8 行（Eve 264000 / Bob 216000 / Alice 180000 / Carol 144000 / Grace 132000 / Frank 120000 / Henry 114000 / Dave 108000）；实验2 → ERROR 1054 (42S22) Unknown column \'annual\' in \'where clause\'；实验3 → 升序 4 行 NULL（Dave / Frank / Grace / Henry）在最前、降序时在最后（学生原猜「排最后」，被实验推翻）；实验4 → is_null 依次 0 / 0 / 0 / 0 / 1 / 1 / 1 / 1，4 个 1 全在末尾；实验5 → 3 / 3 / 2 行（Eve·Bob·Alice / Carol·Grace·Frank / Henry·Dave）；实验6 → COUNT(*) = 20000；实验7 → Handler_read_next 134 → 143（+9）、143 → 20142（+19999）；实验8 → Handler_read_rnd_next 20073 → 40074（+20001）、40074 → 60075（+20001）；实验10 → 20142 → 20151（+9），返回 10 行'
           },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          findings: [
+            '分页 = LIMIT offset, size：offset 是【跳过的行数】不是页码，第 N 页的 offset =（N-1）× size；最后一页不足 size 时返回剩下的行',
+            'MySQL 排序时把 NULL 当成【最小值】：升序排最前、降序排最后 —— 学生讲前预测「排最后」，被实验推翻（这是本节最有价值的一次猜错）',
+            '同一个 NULL 有两副面孔，别混：WHERE bonus = 2000 里 NULL 走【三值逻辑】（NULL = 2000 → UNKNOWN → 行被丢弃，A3）；ORDER BY bonus 里 NULL 走【排序规则】（当最小值）—— 过滤器里「谁都不等于」，排序器里「比谁都小」',
+            '⚠️ 跨库差异（面试考点）：MySQL 升序时 NULL 排最前，PostgreSQL 默认相反（升序 NULLS LAST）—— 用户公司用 PG，从 MySQL 切回去时会踩这个坑',
+            '把 NULL 固定赶到末尾的写法：ORDER BY (col IS NULL), col —— col IS NULL 算出 0/1，NULL 行得 1 被推到后面，组内再按真实值排',
+            'Handler_read_next = 沿索引顺序读「下一条」的次数（Handler 是服务层与存储引擎之间的接口层）。三个性质：会话级累计值（必须看两次 SHOW 的差值）、实测而非估算（EXPLAIN 里的 rows 是估算，可能说谎）、只是扫描行数的近似指标、不等于耗时',
+            'Handler 家族：read_first（读某索引第一条）、read_next（沿索引顺序读下一条）、read_rnd_next（不走索引的全表扫）、read_rnd（按行号随机读）。取 10 行时 read_next 只加 9 —— 那 1 次记在 read_first 上',
+            '深分页慢的机制（有索引时）：索引叶子节点是一条顺序链，没有「第 N 个叶子在哪」的地址；offset = 19990 时必须先顺序走 19990 步再丢掉。实测 ORDER BY id：LIMIT 0, 10 → +9；LIMIT 19990, 10 → +19999',
+            '⚠️ 但「深分页慢」有前提：排序字段能用上索引。ORDER BY val（val 无索引）时，浅分页和深分页的 Handler_read_rnd_next 增量都是 20001 —— 必须全表扫 + filesort，而排序前不知道谁是前 10 名，输入永远是全部行',
+            '所以是两种病因、两种药（L6 详讲）：① 排序字段无索引 → 每次查询都慢，药方是建索引；② 有索引但 offset 大 → 白走 N 步，药方是延迟关联 / 游标分页',
+            '游标分页雏形（本节提前尝到甜头）：WHERE id > 上一页最后一条的 id ORDER BY id LIMIT 10 —— 实测 Handler_read_next 增量从 19999 掉到 9。原理是不用 offset，让索引直接跳到起点',
+            '执行顺序复习（A1）：ORDER BY 与 LIMIT 都排在 SELECT 之后 → 别名在这两步可见；WHERE 排在 SELECT 之前 → 别名不可见（ERROR 1054）。学生本课把顺序答成 where → from → order by → select，因果恰好弄反，重做后答对'
+          ],
+          pitfalls: [
+            '（学生）讲前预测「升序时 NULL 排最后」—— 猜反了，正好由实验推翻；这类预判错误比直接听结论印象深，以后继续让他先猜',
+            '（学生）Q2 把「WHERE id > 19990 恰好返回 10 行」当成「取接下来 10 条」—— 数据巧合当成了语法保证；漏写 LIMIT 10，也没做增量预测。补上后预测 +9、实测 +9，全对',
+            '（学生）Q3 执行顺序答成 where → from → order by → select —— ORDER BY 被放到 SELECT 前面，把「别名为什么可见」的因果弄反；换成「给 5 个步骤排序」重问后答对，说明是记忆不牢而不是没理解',
+            '（AI）原教案实验 7 设计有缺陷：打算用 ORDER BY val（无索引列）测 Handler_read_next 来对比深浅分页 —— 实际增量恒为 0（无索引排序走全表扫，记在 Handler_read_rnd_next），深浅分页根本区分不出来。讲前预演时发现，已改成 ORDER BY id（走主键索引）并补上无索引对照组（实验 8~9）。这正是 B1 / C2 那条老规矩：实验必须能区分假设',
+            '（AI）lab11.sql 注释写「Eve（15000 * 12 = 264000）」—— 数字张冠李戴（15000 是 Alice 的薪水，Eve 是 22000 × 12 = 264000），已修'  
+          ],
+          quiz: [
+            {
+              q: '（Q1 原理）同样是取 10 行：为什么 ORDER BY id LIMIT 19990, 10 要读约 2 万行，而 ORDER BY val LIMIT 0, 10 也要读约 2 万行？分别说清两个「2 万行」的原因，它们是不是同一个原因？',
+              mine: '1、不是同一个原因。ORDER BY id LIMIT 19990, 10，走了索引，但是因为需要从同到位都走一遍，所以大约2万行。而ORDER BY val LIMIT 0, 10没有索引，无论limit多少，都需要从头到尾读一遍然后排序取前10个，所以读了2万行。',
+              note: '✅ 全对，尤其是「不是同一个原因」这一层分辨做对了。① ORDER BY id 走索引顺序扫描，要跳过前 19990 行就必须顺序走 19990 步，再读 10 行 ≈ 20000；② ORDER BY val 没有可用索引，只能全表扫 + filesort，而排序前不知道哪 10 行最大，输入必然是全部 2 万行。要修一句措辞：② 不是「取前 10 个所以要读 2 万」，而是「读 2 万 → 排序 → 才取 10 个」，因果顺序说反了。'
+            },
+            {
+              q: '（Q2 动手）已知上一页最后一条的 id 是 19990。请你写一条不用 offset 的 SQL，取出接下来的 10 条（按 id 升序），并预测它的 Handler_read_next 增量大概是多少。',
+              mine: 'select * from big_nums where id > 19990;',
+              note: '❌ 不完整：① 只写了 WHERE id > 19990，没有 LIMIT 10 —— 本例恰好只有 10 行满足条件，那是数据巧合，不是语法保证（表里若有 100 万行，这条会返回 999990 行）；② 没有做增量预测。思路方向是对的（用 WHERE 直接跳到起点，而不是用 offset 数过去），这正是游标分页的核心，只差一个 LIMIT。'
+            },
+            {
+              q: '（Q2 重做）补全 SQL（要真的只取 10 条）+ 先预测 Handler_read_next 增量，再跑 SHOW / 查询 / SHOW 三条验证。',
+              mine: '2、返回10行，预测增量是9。',
+              note: '✅ 全对：预测 +9，实测 20142 → 20151 = +9。对比实验 7 的深分页（+19999）—— 同样取 10 行，代价降了 2000 倍。原因：不用 offset，让索引直接跳到 id > 19990 的起点，读 10 行就收工。（那 9 次仍然满足 read_next = 行数 − 1，第 1 行记在 read_first 上。）'
+            },
+            {
+              q: '（Q3 复习 A1）为什么 WHERE annual > 150000 会报 Unknown column，而 ORDER BY annual DESC 能正常用这个别名？用执行顺序回答。',
+              mine: '3、如果我没记错，执行顺序是where -> from -> order by -> select。',
+              note: '❌ 顺序答错三处。正确的是 FROM → WHERE → GROUP BY → HAVING → SELECT → DISTINCT → ORDER BY → LIMIT。他把 ORDER BY 放在 SELECT 之前，恰好把因果弄反 —— 别名能在 ORDER BY 可见，正是因为 ORDER BY 排在 SELECT【之后】。'
+            },
+            {
+              q: '（Q3 重做）把 FROM / WHERE / SELECT / ORDER BY / LIMIT 五个步骤排好序，并用它解释：为什么 SELECT name AS n ... ORDER BY n 能跑，而 WHERE n = \'Eve\' 会报错？',
+              mine: '3、from -> where -> select -> order by -> limit。因为order by在select之后，而where在select之前。',
+              note: '✅ 全对：顺序正确，解释也说到点子上（ORDER BY 在 SELECT 之后 → 别名已存在；WHERE 在 SELECT 之前 → 别名还没产生）。'
+            },
+            {
+              q: '（Q4 复习 A3 + 本节新点）bonus 列既有值也有 NULL：WHERE bonus = 2000 时 NULL 行会怎样？ORDER BY bonus 升序时 NULL 行在哪？这两处的 NULL 行为为什么不一样？',
+              mine: 'WHERE bonus = 2000，null行在结果里没有。ORDER BY bonus会出现在开头。因为where会丢弃null，而ORDER BY会认为null是最小的。',
+              note: '✅ 全对。① WHERE 走比较 → NULL = 2000 得 UNKNOWN（A3 三值逻辑）→ 只放行 TRUE → NULL 行被丢；② ORDER BY 不走比较，走排序规则 → NULL 当最小值 → 排最前。同一个 NULL：在过滤器里「谁都不等于」，在排序器里「比谁都小」。'
+            }
+          ]
         },
         {
           id: 'D2',
           title: '窗口函数入门：ROW_NUMBER / RANK / DENSE_RANK',
-          status: 'todo',
+          status: 'doing',
           weight: '高',
           estimate: '60 min',
           plan: '三个排名函数的差别要能一眼说出，并能用它解分组取 TopN。',
