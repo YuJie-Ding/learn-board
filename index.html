@@ -2198,7 +2198,37 @@ window.ROADMAP_DATA.levels.push({
             'OVER (PARTITION BY ... ORDER BY ...) 的含义',
             '窗口函数不能出现在 WHERE 里（执行顺序：在 SELECT 阶段才算）'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：同一份带并列排名的数据，三个函数一起输出对比' },
+          experiment: {
+            file: 'lab12.sql',
+            sql: [
+              '-- 实验1：建 scores 表（A 班 90/90/90 三连并列、B 班 88/88 两连并列）',
+              "DROP TABLE IF EXISTS scores; CREATE TABLE scores (id INT PRIMARY KEY, name VARCHAR(20), class VARCHAR(10), score INT); INSERT INTO scores VALUES (1,'Alice','A',95),(2,'Bob','A',90),(3,'Carol','A',90),(4,'Dave','A',90),(5,'Eve','A',80),(6,'Frank','B',88),(7,'Grace','B',88),(8,'Henry','B',70); SELECT * FROM scores ORDER BY class, score DESC, id;  -- 8 行",
+              '-- 实验2：三个排名函数同框（不分区，全班一起排）—— 跑之前先写下 A 班 5 行的三列预测',
+              'SELECT id, class, name, score, ROW_NUMBER() OVER (ORDER BY score DESC) AS rn, RANK() OVER (ORDER BY score DESC) AS rk, DENSE_RANK() OVER (ORDER BY score DESC) AS dr FROM scores ORDER BY score DESC, id;  -- rn 1..8 / rk 1,2,2,2,5,5,7,8 / dr 1,2,2,2,3,3,4,5',
+              '-- 实验3：加上 PARTITION BY class —— 每个班各自从头排名，行数仍是 8',
+              'SELECT id, class, name, score, ROW_NUMBER() OVER (PARTITION BY class ORDER BY score DESC) AS rn, RANK() OVER (PARTITION BY class ORDER BY score DESC) AS rk, DENSE_RANK() OVER (PARTITION BY class ORDER BY score DESC) AS dr FROM scores ORDER BY class, score DESC, id;  -- A 班 1..5、B 班 1..3',
+              '-- 实验4：反直觉对照 —— 去掉窗口里的 ORDER BY',
+              'SELECT id, class, name, score, ROW_NUMBER() OVER (PARTITION BY class) AS rn, RANK() OVER (PARTITION BY class) AS rk FROM scores ORDER BY class, id;  -- rk 全 1，但 rn 仍是 1..5（不排序≠不编号）',
+              '-- 实验5：故意的 —— 窗口函数直接写在 WHERE 里',
+              'SELECT name, score, RANK() OVER (ORDER BY score DESC) AS rk FROM scores WHERE RANK() OVER (ORDER BY score DESC) <= 2;  -- ERROR 3593',
+              '-- 实验5b：换成别名再撞一次（与 D1 实验2 同一个病根）',
+              "SELECT name, score, RANK() OVER (ORDER BY score DESC) AS rk FROM scores WHERE rk <= 2;  -- ERROR 1054 Unknown column 'rk' in 'where clause'",
+              '-- 实验6：正确姿势 —— 包一层派生表，外层 WHERE 再过滤（6 行）',
+              'SELECT t.class, t.name, t.score, t.rk FROM (SELECT class, name, score, RANK() OVER (PARTITION BY class ORDER BY score DESC) AS rk FROM scores) t WHERE t.rk <= 2 ORDER BY t.class, t.score DESC, t.name;',
+              '-- 实验7：GROUP BY 是「折叠」（8 行 → 2 行），窗口函数是「贴标签」（仍是 8 行）',
+              'SELECT class, COUNT(*) AS cnt, AVG(score) AS avg_score FROM scores GROUP BY class;  -- 2 行：A 5 人 89.00 / B 3 人 82.00',
+              'SELECT id, class, name, score, COUNT(*) OVER (PARTITION BY class) AS cnt, ROUND(AVG(score) OVER (PARTITION BY class), 2) AS avg_score FROM scores ORDER BY class, id;  -- 8 行，每行都贴上了本组的人数与均分',
+              '-- 实验8：分组取每组前 2 名 —— ROW_NUMBER 版 4 行 vs RANK 版 6 行',
+              'SELECT t.class, t.name, t.score, t.rn FROM (SELECT class, name, score, ROW_NUMBER() OVER (PARTITION BY class ORDER BY score DESC) AS rn FROM scores) t WHERE t.rn <= 2 ORDER BY t.class, t.score DESC, t.name;  -- 4 行',
+              'SELECT t.class, t.name, t.score, t.rk FROM (SELECT class, name, score, RANK() OVER (PARTITION BY class ORDER BY score DESC) AS rk FROM scores) t WHERE t.rk <= 2 ORDER BY t.class, t.score DESC, t.name;  -- 6 行（A 班并列第 2 的三个人全进来）',
+              '-- 实验9：门槛放宽到前 3 名 —— RANK 和 DENSE_RANK 终于分家（7 行 vs 8 行）',
+              'SELECT t.class, t.name, t.score, t.rk FROM (SELECT class, name, score, RANK() OVER (PARTITION BY class ORDER BY score DESC) AS rk FROM scores) t WHERE t.rk <= 3 ORDER BY t.class, t.score DESC, t.name;  -- 7 行（Eve 的 rk=5 被挡在门外）',
+              'SELECT t.class, t.name, t.score, t.dr FROM (SELECT class, name, score, DENSE_RANK() OVER (PARTITION BY class ORDER BY score DESC) AS dr FROM scores) t WHERE t.dr <= 3 ORDER BY t.class, t.score DESC, t.name;  -- 8 行（Eve 以第 3 名进来）'
+            ],
+            expected: '实验1 → 8 行（A 班 95/90/90/90/80、B 班 88/88/70）；实验2 → rn=1..8、rk=1,2,2,2,5,5,7,8、dr=1,2,2,2,3,3,4,5；实验3 → A 班内部 1..5、B 班内部 1..3，仍是 8 行（PARTITION BY 只影响编号、不影响行数）；实验4 → rk 全是 1，但 rn 仍为 1,2,3,4,5（讲前预演实测：原教案预测「三列全变 1」是错的）；实验5 → ERROR 3593 You cannot use the window function \'rank\' in this context；实验5b → ERROR 1054 Unknown column \'rk\' in \'where clause\'；实验6 → 6 行（A 班 Alice 1 + Bob/Carol/Dave 2,2,2；B 班 Frank/Grace 1,1）；实验7 → GROUP BY 2 行（A 5 人 89.00 / B 3 人 82.00）vs 窗口函数 8 行（每行都带 cnt=5/3、avg=89.00/82.00）；实验8 → ROW_NUMBER 版 4 行、RANK 版 6 行；实验9 → RANK 版 7 行、DENSE_RANK 版 8 行',
+            errors: '实验2 若 rn 列有跳号，检查是不是把 ROW_NUMBER 写成了 RANK；实验3 若行数变成 2 行，说明用成了 GROUP BY（PARTITION BY 不折叠行）；实验4 若 rk 不是全 1，确认 OVER() 里真的没有 ORDER BY；实验5 若只是报语法错而不是 3593，把原文发我（版本差异）；实验6 若行数超过 6，检查是不是漏了外层的 WHERE t.rk <= 2（派生表只是把窗口函数算出来，过滤还得靠外层）；实验8 若两版行数一样，确认 RANK 版用的是 RANK() 而不是 ROW_NUMBER()',
+            evidence: ''
+          },
           findings: [],
           pitfalls: [],
           quiz: []
