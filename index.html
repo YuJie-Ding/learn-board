@@ -2849,6 +2849,445 @@ window.ROADMAP_DATA.levels.push({
     }
   ]
 });
+/* =====================================================================
+ * L3.js —— 索引 ⭐⭐⭐（14 节 · 每节 30 min）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ *
+ * 【这一层为什么是 14 节 —— 用学生自己的数字算的】
+ *   MySQL学习指导.md 第 2 部分："权重：L3 + L4 占面试题的 60%，L6 占 25%，其他 15%"
+ *   ⇒ L3 单独占面试题的约 30%，是【四层里最重的一层】
+ *   第 3 部分直接命中 L3 的题：
+ *     必考题  #1 为什么用 B+ 树 / #2 回表与覆盖索引 / #3 最左前缀与联合索引设计 /
+ *             #4 索引失效的场景 / #5 EXPLAIN 怎么看（前半）
+ *     高频题  #15 聚簇索引 vs 非聚簇索引 / #19 索引下推
+ *   按规则 17（单节 ≤ 30 min）折算：14 节 × 30 min ≈ 7 小时。
+ *   对照 L1（15 节 / 11 小时，权重不到 15%）—— L3 这个体量是合理的。
+ *
+ * 【排课原则（学生 2026-10-02 要求）】
+ *   · 单节 ≤ 30 min，【不分批次】；课内最多一个"先猜再跑"的节奏
+ *   · 只学后续必须要的：每一节的 plan 开头都标了【对应面试题第几条】
+ *   · 节数比原计划（约 10 节）多 —— 不是因为内容变多，是因为按 30 min 拆细了
+ *
+ * 【本层用到的通用测量手段（在 A1 学会，之后每节复用）】
+ *   · SHOW SESSION STATUS LIKE 'Handler_read%'  → 看两次的【差值】判断读了多少行
+ *   · EXPLAIN                                   → type / key / rows / Extra
+ *   · 客户端自报的 (0.xx sec)                    → ⚠️ 别用手工打时间戳（E2 踩过）
+ *   ⚠️ 所有实验数据用英文（规则 16）；造大数据记得 SET SESSION cte_max_recursion_depth
+ *
+ * ⚠️ 本层学完 = 阶段②结束 → 要按 5.1 规则 2 做【阶段②综合检验】
+ *    （学生原话："L3 这一层要能讲 10 分钟不断"）
+ * ⚠️ 开班前先确认：【阶段①综合检验】那笔账还没还（见 plan.js 交接说明第 5 条）
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L3',
+  title: '索引 ⭐⭐⭐',
+  subtitle: '面试题的 30% 都在这一层 —— 学完要能就索引讲 10 分钟不断',
+  status: 'todo',
+  goal: '能画出 B+ 树的形状并解释为什么是它；能看懂 EXPLAIN 的 4 个关键字段；能判断任意一条 WHERE 用不用得上联合索引；能一眼认出 6 种索引失效（尤其是隐式类型转换）；能根据查询反推该建什么联合索引。',
+  estimate: '14 节 · 每节 30 min · 约 7 小时（按规则 17 的 30 min 粒度重排）',
+  interviewRefs: [
+    '必考 #1 为什么用 B+ 树',
+    '必考 #2 什么是回表 / 覆盖索引',
+    '必考 #3 最左前缀原则 / 联合索引怎么设计',
+    '必考 #4 索引失效的场景有哪些',
+    '必考 #5 EXPLAIN 怎么看 / type 有哪些值（本节只学 4 个字段，全字段留 L6）',
+    '高频 #15 聚簇索引和非聚簇索引的区别',
+    '高频 #19 什么是索引下推'
+  ],
+
+  environment: {
+    container: 'mysql-learn',
+    version: 'MySQL 8.0.46',
+    database: 'learn',
+    charset: 'utf8mb4 / utf8mb4_0900_ai_ci',
+    connect: 'docker exec -it mysql-learn mysql -uroot -p666666 --default-character-set=utf8mb4 learn',
+    runLabFile: 'docker exec -i mysql-learn mysql -uroot -p666666 --force --default-character-set=utf8mb4 learn < labNN.sql',
+    note: '运行 lab 文件一律加 --force，因为部分语句是"故意报错"的；不加会中断整个文件。⚠️ 实验数据一律用英文（规则 16）。⚠️ 计时要看客户端自报的 (0.xx sec)，不要手工打时间戳。'
+  },
+
+  modules: [
+    /* ================= 模块 A：建立模型与测量手段 ================= */
+    {
+      id: 'A',
+      title: '建立模型与测量手段',
+      desc: '先用两条 SQL 亲手量出"有索引"和"没索引"差多少个数量级，再学会用 EXPLAIN 当体温计 —— 后面 12 节全靠这两样工具。',
+      lessons: [
+        {
+          id: 'A1',
+          title: '索引是什么 + 亲手量出差距（学会测量）',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应面试题：无 —— 本节是后面 13 节都要用的测量技能】造一张 10 万行的表，同一条查询在"没索引 / 有索引"下各跑一次，量出差距；顺带学会 Handler_read% 计数器和"取两次差值"的读法（D1 学过，这里正式化）。',
+          concepts: [
+            '索引不是"让查询变快"的魔法，而是"让引擎少读几行"—— 快是少读的结果',
+            '全表扫描的读行数 ≈ 表行数；索引查找的读行数 ≈ 树高度 + 命中的行数（差几个数量级）',
+            'Handler_read_next = 沿索引顺序读；Handler_read_rnd_next = 全表扫；必须看两次 SHOW 的【差值】，绝对值没意义'
+          ],
+          experiment: {
+            file: 'lab17.sql',
+            sql: [],
+            expected: '待设计（30 min 内、不分批次）：① 建 t_idx（id 主键 + val + name，10 万行）；② 不开索引查 WHERE val = 88888，记 Handler 差值；③ 加索引 idx_val 再查同一条，记差值；④ 对比两者 → 一个约 10 万，一个约 3~5。⚠️ 造数据要设 cte_max_recursion_depth',
+            errors: '待设计：若两次 Handler 差值一样大，检查 SHOW 与查询是否在同一会话；若索引没生效，先 SHOW INDEX FROM t_idx 确认建上了',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'A2',
+          title: 'EXPLAIN 入门：只盯 4 个字段',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #5（前半）】只学 type / key / rows / Extra 这 4 个字段，其余的（possible_keys / filtered / partitions…）明确说"L6 再讲"，避免一次灌太多。用刚才那两条查询跑 EXPLAIN，看两条输出差在哪。',
+          concepts: [
+            'type 的好坏梯队：const > eq_ref > ref > range > index > ALL —— 看到 ALL 就是全表扫，是坏味道',
+            'key = 优化器实际选中的索引（null 表示没用索引）；rows = 预估要扫多少行（是估算，不是精确值）',
+            'Extra 的四种常见值：Using index（覆盖索引，最好）/ Using index condition（索引下推）/ Using where（回表后过滤）/ Using filesort、Using temporary（要优化）'
+          ],
+          experiment: {
+            file: 'lab18.sql',
+            sql: [],
+            expected: '待设计：对 A1 的两条查询各跑一次 EXPLAIN，把 type / key / rows / Extra 四列抄下来对比；再故意写一条 OR 带无索引列，看 type 掉回 ALL',
+            errors: '待设计：EXPLAIN 的 rows 是估算值，和实际 Handler 差值可能不同 —— 这本身就是个知识点，别当成 bug',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 B：底层结构（为什么是 B+ 树） ================= */
+    {
+      id: 'B',
+      title: '底层结构（为什么是 B+ 树）',
+      desc: '这两节不写多少 SQL，主要是"算账"：把磁盘 IO 次数算出来，B+ 树的优势就自己浮出来了。',
+      lessons: [
+        {
+          id: 'B1',
+          title: '为什么不是哈希、二叉树、红黑树',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #1（前半）】逐个把候选结构否掉：哈希（范围查询和排序直接废）、二叉树/红黑树（2000 万行时树高约 24 层 = 24 次 IO）。核心心法：数据库的瓶颈是【磁盘 IO 次数】，不是 CPU 比较次数。',
+          concepts: [
+            '磁盘 IO 是瓶颈：每多一层树 = 多一次随机 IO，一次随机 IO 约 10ms 量级，而内存比较是纳秒级 —— 差 6 个数量级',
+            '哈希索引：等值查询 O(1) 很快，但【不支持范围查询、不支持排序】→ 只能做等值，所以 Memory 引擎/自适应哈希才用它',
+            '红黑树是"二叉"的平衡版：2000 万行 → 树高约 log2(2000 万) ≈ 24 层 → 最多 24 次 IO，磁盘上不可接受'
+          ],
+          experiment: {
+            file: 'lab19.sql',
+            sql: [],
+            expected: '待设计：① 用 SQL 算出三种结构在 2000 万行下的树高（二叉树/红黑树 log2、B+ 树按扇出）→ 得到 IO 次数对比；② 建一张 Memory 引擎表加 HASH 索引，演示 ORDER BY 与 > 范围查询用不上它（EXPLAIN 对比）',
+            errors: '待设计：Memory 引擎的 HASH 索引不支持范围查询，若 EXPLAIN 显示 range 说明建成了 BTREE（USING HASH 没写对）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'B2',
+          title: '为什么是 B+ 树而不是 B 树（"2000 万行"是怎么算出来的）',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #1（后半）】亲手算一遍：一个 16KB 的页能放多少索引项 → 三层 B+ 树能存多少行 → 为什么说"2000 万行只要 3 次 IO"。再对比 B 树：非叶子节点也存数据 → 扇出变小 → 树变高。',
+          concepts: [
+            'B+ 树：非叶子节点【只存索引键、不存数据】→ 一个页能放更多指针 → 扇出大 → 树矮（3 层撑 2000 万行）',
+            'B+ 树：叶子节点用【双向链表】串起来 → 范围查询顺着链表走就行（这是它相对 B 树最大的优势）',
+            'B 树：非叶子也存数据 → 扇出小、树更高；且范围查询要在树里来回跳'
+          ],
+          experiment: {
+            file: 'lab20.sql',
+            sql: [],
+            expected: '待设计：① 用 SELECT @@innodb_page_size 确认页大小（16KB）；② 手算：BIGINT 主键 8 字节 + 页指针 6 字节 → 一页约 16*1024/(8+6) ≈ 1170 个指针；叶子一行按 1KB 算 → 一页约 16 行 → 3 层 ≈ 1170 × 1170 × 16 ≈ 2190 万行；③ 用真实表验证量级（可选：查 information_schema 的 DATA_LENGTH / 行数推每行大小）',
+            errors: '待设计：算出来的数只是个量级，不要追求精确 —— 目的是建立"3 层就够用"的直觉',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 C：两种索引与"回去拿数据" ================= */
+    {
+      id: 'C',
+      title: '两种索引与"回去拿数据"',
+      desc: '为什么查主键快、查普通列慢？为什么 SELECT * 会拖累索引？这一块是必考 #2 的全部内容。',
+      lessons: [
+        {
+          id: 'C1',
+          title: '聚簇索引 vs 二级索引',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #2（前半）+ 高频题 #15】搞清一张表只有一棵聚簇索引（就是主键那棵），它的叶子存【整行】；而二级索引的叶子只存【主键值】。用 SHOW INDEX + 两条查询对比，把"为什么二级索引查完还得回去"看出来。',
+          concepts: [
+            '聚簇索引 = 主键索引，叶子节点直接存【整行数据】；表本身就是按主键组织的一棵 B+ 树（所以按主键查最快）',
+            '二级索引（普通索引）的叶子只存【主键值】—— 它不存整行，所以它比想象中"小得多"',
+            '⚠️ 一张表只有一个聚簇索引（被主键占用）；如果建表时没写主键，InnoDB 会自己造一个 6 字节的隐藏 row_id —— 所以【每张表都该显式写主键】'
+          ],
+          experiment: {
+            file: 'lab21.sql',
+            sql: [],
+            expected: '待设计：① 建 t_user（id 主键 + phone 普通索引 + name 无索引）；② SHOW INDEX FROM t_user 看两个索引的差别；③ 对比三条查询的 EXPLAIN：WHERE id=? / WHERE phone=? / WHERE name=? 的 type 与 key；④ 回到 L2/A1 的结论："主键越短，所有二级索引越小"在这里亲眼确认',
+            errors: '待设计：若 WHERE name=? 也走了索引，说明 name 上意外有索引，SHOW INDEX 确认',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C2',
+          title: '回表与覆盖索引',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #2（后半）核心】同一条查询，把 SELECT 的列从 * 改成索引里的列，Extra 就从 NULL 变成 Using index，Handler 读数直接掉一个数量级 —— 亲眼看见"回表有多贵"。',
+          concepts: [
+            '回表 = 先用二级索引找到主键值，再拿主键去聚簇索引捞整行 → 多一次（命中多行时是多次）随机 IO',
+            '覆盖索引 = 要查的列【全都在索引里】 → 不用回表。EXPLAIN 的 Extra 显示 Using index',
+            '两个立刻可用的招式：① 别写 SELECT *（少捞不需要的列）② 高频查询把要用的列一起放进联合索引（就是造覆盖索引）'
+          ],
+          experiment: {
+            file: 'lab22.sql',
+            sql: [],
+            expected: '待设计：① 在 t_user(phone) 上跑 SELECT * FROM t_user WHERE phone=? 与 SELECT id, phone FROM t_user WHERE phone=?；② 对比 EXPLAIN 的 Extra（NULL vs Using index）与 Handler_read_rnd / read_next 差值；③ 再建联合索引 (phone, name) 让第二个查询变成覆盖索引',
+            errors: '待设计：若 Extra 一直是 Using index condition 而不是 Using index，说明还差列没覆盖全；注意区分两者（一个是下推、一个是覆盖）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C3',
+          title: '索引下推 ICP',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应高频题 #19】联合索引 (a, b) 上跑 WHERE a=? AND b LIKE \'%x%\'：没有 ICP 时要先回表把行捞回来再过滤 b；有 ICP 时在索引层就把 b 过滤掉，回表次数大幅减少。用 Handler 差值证明。',
+          concepts: [
+            '索引下推（Index Condition Pushdown，MySQL 5.6+）：把只能"回表后过滤"的条件【下推到索引层】先过滤，减少回表次数',
+            'EXPLAIN 的 Extra 显示 Using index condition = ICP 生效；这不是覆盖索引（还是要回表），只是回表前先筛掉了大部分',
+            'ICP 只在二级索引上生效，且需要条件能被索引覆盖到（比如联合索引的第二列，虽然不是最左但能做下推）'
+          ],
+          experiment: {
+            file: 'lab23.sql',
+            sql: [],
+            expected: '待设计：① 建 t_icp（a, b, c）+ 联合索引 (a, b)，灌 5 万行；② SET optimizer_switch=\'index_condition_pushdown=off\' 跑一次，设 on 再跑一次；③ 对比两次的 Handler_read_rnd（回表次数）与 Extra → 能看出 ICP 省了多少次回表',
+            errors: '待设计：若两次读数完全一样，检查 optimizer_switch 是否设成功（SELECT @@optimizer_switch 看一眼）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 D：联合索引 ================= */
+    {
+      id: 'D',
+      title: '联合索引（最容易考）',
+      desc: '必考 #3 的全部内容。学完要能做到：给一条 WHERE，立刻说出联合索引里哪几列能用上。',
+      lessons: [
+        {
+          id: 'D1',
+          title: '最左前缀原则',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #3 核心】在 (a, b, c) 这个联合索引上，把 8~10 种 WHERE 组合挨个跑 EXPLAIN，把"能用上几列"填成一张表 —— 让规则从"背"变成"查表"。',
+          concepts: [
+            '最左前缀：从最左列开始【连续】匹配。能用 a / a,b / a,b,c；a,c 只能用 a；b,c 完全用不上',
+            '遇到【范围条件就停】：WHERE a=? AND b>? AND c=? → 只用到 a,b，c 用不上',
+            'a,b,c 与 c,b,a 的索引不是同一个东西；WHERE b=? AND a=? 是可以用上 (a,b) 的（优化器会自动调整等值条件的顺序）'
+          ],
+          experiment: {
+            file: 'lab24.sql',
+            sql: [],
+            expected: '待设计（一条 WHERE 一行表格，不搞批次）：建 t_lcp（a,b,c,d）+ 索引 idx_abc(a,b,c)，灌 5 万行；依次 EXPLAIN 下面每一行并填表：a / b / c / a,b / a,c / b,c / a,b,c / a,b>范围,c / a LIKE \'x%\' AND b=? / a,b ORDER BY c。看 key_len 的变化能推断出"用到了几列"',
+            errors: '待设计：若 WHERE b=? 也走了索引，多半是建了单列索引；key_len 的字节数可以反推列数（每列按它的类型占字节数算）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D2',
+          title: '联合索引顺序怎么定',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必背 #8】三条规则：等值条件放前 → 区分度高的放前 → 范围条件放最后。亲手算一次区分度（COUNT(DISTINCT col)/COUNT(*)），再按两种顺序各建一个索引对比。',
+          concepts: [
+            '列顺序三原则：① 等值条件在前、范围条件在最后 ② 区分度高的列在前 ③ 能被别的高频查询复用的顺序优先',
+            '区分度 = COUNT(DISTINCT col) / COUNT(*)，越接近 1 越好；只有几个值的列（性别、状态）区分度极低',
+            '⚠️ ORDER BY / GROUP BY 也能"吃"联合索引：WHERE a=? ORDER BY b 用 (a,b) 可以避免 filesort —— 这一条常常比为 WHERE 建索引更值钱'
+          ],
+          experiment: {
+            file: 'lab25.sql',
+            sql: [],
+            expected: '待设计：① 算 t_lcp 各列的区分度；② 建 idx_ab(a,b) 与 idx_ba(b,a) 两个索引，同一批查询各跑一次对比 key 与 rows；③ 用 WHERE a=? ORDER BY b 和 WHERE b=? ORDER BY a 各跑一次，看 Extra 里有没有 Using filesort',
+            errors: '待设计：同一个表上并存两个顺序不同的索引时，优化器可能选另一个 —— 测的时候先 DROP 掉干扰的索引',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 E：索引失效（必考 #4） ================= */
+    {
+      id: 'E',
+      title: '索引失效的 6 种场景',
+      desc: '必考 #4，照着学生自己文件里的 6 条逐条动手。每节只搞 1~2 条，做完就把 EXPLAIN 的证据贴上看板。',
+      lessons: [
+        {
+          id: 'E1',
+          title: '失效场景 ①②：违反最左前缀 / 索引列上做运算或函数',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #4 的第 1、2 种】两条对比练习：把索引列包进函数、或在索引列上做算术，索引立刻失效 —— 换成"范围写法"就恢复。',
+          concepts: [
+            '场景①：违反最左前缀 —— 索引 (a,b) 上 WHERE b=1，用不上（D1 已证）',
+            '场景②：索引列上做运算或函数 —— WHERE YEAR(create_time)=2024 ✗，改成 create_time >= \'2024-01-01\' AND < \'2025-01-01\' ✓；WHERE id+1=10 ✗，改成 id=9 ✓',
+            '心法：索引存的是【列的原值】，列一旦被函数/运算包住，B+ 树里的顺序就对不上了，没法二分查找'
+          ],
+          experiment: {
+            file: 'lab26.sql',
+            sql: [],
+            expected: '待设计：建 t_fail（id, phone varchar, name, create_time datetime, amount, status）+ 必要索引；逐条 EXPLAIN 并记录 type/key：WHERE YEAR(create_time)=2024 vs 范围写法；WHERE id+1=10 vs id=9；WHERE LEFT(name,3)=\'abc\' vs name LIKE \'abc%\'',
+            errors: '待设计：MySQL 8.0 引入了函数索引，若 LEFT(name,3) 也走了索引，说明建了对应的函数索引，先 DROP 再测',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E2',
+          title: '失效场景 ③：隐式类型转换 ⭐最隐蔽最常见',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考题 #4 的第 3 种 —— 学生文件里特别标注"一定要能举例子，这是实战最常见的坑"】重点做【双向对比】：字符串列传数字会失效，但数字列传字符串【不会】失效（是字符串被转成数字）。这个不对称是本节的核心。',
+          concepts: [
+            'phone 是 VARCHAR：WHERE phone = 13800138000（数字）→ 索引失效，因为 MySQL 会把【列】转成数字来比（列被函数包裹）',
+            '反过来：id 是 INT：WHERE id = \'123\' → 索引【正常生效】，因为字符串会被转成数字（转换发生在常量侧，列没被动）',
+            '记忆口诀：字符串列别传数字。判断方向看"谁被转换"——转列 = 失效，转常量 = 没事'
+          ],
+          experiment: {
+            file: 'lab27.sql',
+            sql: [],
+            expected: '待设计：① t_fail.phone 是 varchar 且有索引，WHERE phone = 13800138000 与 WHERE phone = \'13800138000\' 各 EXPLAIN 一次；② 再拿一个 INT 列 id（有索引），WHERE id = \'99999\' 看 type —— 应该是 range/ref 而不是 ALL；③ 用 EXPLAIN 的 type 与 rows 把"两个方向"的差别摆出来',
+            errors: '待设计：若字符串传数字也没失效，检查列的字符集/排序规则或 MySQL 版本行为差异，把实际输出记下来（这是会出现在面试追问里的细节）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E3',
+          title: '失效场景 ④⑤：LIKE 以 % 开头 / OR 带无索引列',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应必考题 #4 的第 4、5 种】两条都是"一句话能说清、动手才记牢"的：LIKE \'%abc\' 用不上（前缀不确定就没法二分），LIKE \'abc%\' 用得上；OR 只要有一边没索引，整体就退回全表扫。',
+          concepts: [
+            'LIKE 只能用【前缀确定】的形式：\'abc%\' 可以，\'%abc\' 不行，\'%abc%\' 更不行 —— 因为 B+ 树是靠"左边前缀"定位的',
+            'OR 连接的两个条件：只要有一个列没有索引，整个查询就全表扫描（要两边都能各自走索引，才可能用上索引合并 index_merge）',
+            '实用替代：全模糊搜索的活不该交给 MySQL 的 B+ 树（那是全文索引 / ES 的场景）'
+          ],
+          experiment: {
+            file: 'lab28.sql',
+            sql: [],
+            expected: '待设计：① LIKE \'abc%\' / \'%abc\' / \'%abc%\' 三条 EXPLAIN 对比 type（range vs ALL）；② name（有索引）OR status（无索引）→ type=ALL；给 status 也建索引后再跑一次 → 可能变成 index_merge（Extra 里能看到）',
+            errors: '待设计：若 OR 那条一开始就是 index_merge，把 status 的索引 DROP 掉重测，才能看到"失效"的样子',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E4',
+          title: '失效场景 ⑥：!= / NOT IN / IS NOT NULL —— 不是失效，是优化器主动放弃',
+          status: 'todo',
+          weight: '中',
+          estimate: '25 min',
+          plan: '【对应必考题 #4 的第 6 种，同时是"优化器怎么选索引"的入门】讲清一个反直觉的点：这类条件【不是语法上不能走索引】，而是优化器算完成本发现"要返回的行太多，还不如全表扫"。所以要靠数据分布来验证，而不是靠背规则。',
+          concepts: [
+            '优化器是基于【成本】的：它会估算"走索引 + 回表"和"直接全表扫"哪个更便宜，然后选便宜的那个',
+            '所以同一条 SQL 在不同数据分布下结论可能相反：status != 1 在"几乎全是 1"时用不上索引，在"1 只有几条"时反而会走索引',
+            '推论：判断索引是否失效，不能只看写法定性，要看 EXPLAIN 的 rows 与实际数据分布 —— 这也是 L6"优化器为什么不选索引"（加分题 #28）的引子'
+          ],
+          experiment: {
+            file: 'lab29.sql',
+            sql: [],
+            expected: '待设计：① 建 t_sel（id, status, val）+ status 索引，先灌 1 万行其中 status=1 占 99%；② EXPLAIN WHERE status != 1 与 WHERE status = 1 对比；③ 再改成 status=1 只占 1%，同一条 != 1 再 EXPLAIN 一次 → 看 type 是否变了。这一步是本节的高潮：同一句 SQL，结论翻转',
+            errors: '待设计：优化器的估算依赖统计信息，必要时 ANALYZE TABLE 刷新一次再跑；若两次结论没变，把 rows 的估算值记下来，一起看',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 F：代价与收口 ================= */
+    {
+      id: 'F',
+      title: '代价与收口',
+      desc: '索引不是免费的，最后一节讲"什么时候不该建"，并为阶段②综合检验（讲 10 分钟不断）做准备。',
+      lessons: [
+        {
+          id: 'F1',
+          title: '索引的代价 + 什么时候不该建索引',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必背 #9】给同一张表分别"不加索引 / 加 1 个 / 加 5 个"各插 5 万行，亲手量出插入变慢了 —— 索引的读优势是从写的代价上买来的。顺势收口：什么列不该建索引。',
+          concepts: [
+            '索引的代价：占磁盘空间；每次 INSERT / UPDATE / DELETE 都要同步维护所有索引（写变慢）；索引太多时优化器还可能选错',
+            '不该建索引的列：区分度极低的（性别、状态、逻辑删除标志）、几乎不参与 WHERE/ORDER BY 的、频繁更新的、超长的字符串前缀',
+            '建索引的正确姿势：先看慢查询里最贵的那几条 → 按 D2 的顺序规则建联合索引 → 用 EXPLAIN 验证 → 定期清理没被用到的索引'
+          ],
+          experiment: {
+            file: 'lab30.sql',
+            sql: [],
+            expected: '待设计：① 三张结构相同的表（0 / 1 / 5 个二级索引），各灌 5 万行，比客户端自报的耗时；② DROP 掉索引后再灌一次同量数据，看差值；③ 收口问题：AI 扮面试官问"你做过哪些 SQL 优化"（必考题 #10 的前哨），学生用本节学到的证据回答',
+            errors: '待设计：插入耗时受磁盘缓存影响波动大，建议每张表跑 2~3 次取稳定的那次；若差异不明显，把行数加到 20 万',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
 window.__TOPICS__.push({ id: 'Database-Learn', name: 'MySQL', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
 
 /* ===================== 专题：Java 基础 [Java-Basic-Learn] ===================== */
