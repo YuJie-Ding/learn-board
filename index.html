@@ -3290,6 +3290,452 @@ window.ROADMAP_DATA.levels.push({
     }
   ]
 });
+/* =====================================================================
+ * L4.js —— 事务与锁 ⭐⭐⭐（14 节 · 每节 30 min）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ *
+ * 【这一层为什么是 14 节】
+ *   MySQL学习指导.md 第 2 部分："权重：L3 + L4 占面试题的 60%"
+ *   ⇒ L4 和 L3 并列，是面试题里最重的两块之一。
+ *   第 3 部分直接命中 L4 的题：
+ *     必考题  #6 事务的隔离级别 / MySQL 默认是哪个
+ *             #7 MVCC 是怎么实现的 / RC 和 RR 的区别
+ *     高频题  #12 幻读是什么 / InnoDB 怎么解决的
+ *             #13 间隙锁是什么 / 什么情况下会加
+ *             #14 死锁怎么产生、怎么排查、怎么避免
+ *     加分题  #26 为什么不建外键（从 L2 移来）/ #27 长事务有什么危害
+ *   规模按规则 17 折算：14 节 × 30 min ≈ 7 小时，与 L3 持平（两份指导要求"不应小于 L3"）。
+ *
+ * ⚠️⚠️ 【本层最大的特殊之处：所有实验都要开【两个会话】】
+ *   事务 / MVCC / 锁 / 死锁这四样东西，**在一个会话里一个都演示不出来**。
+ *   所以 A1 不教知识，专门用来**搭实验台**：
+ *     · 开两个终端窗口，各起一个 mysql 客户端（两个会话）
+ *     · 约定：会话 A = 动手的那个，会话 B = 观察的那个
+ *     · 学会用 SELECT @@transaction_isolation / SHOW ENGINE INNODB STATUS 看状态
+ *   这个约定要在 A1 写清楚，后面 13 节全部复用。
+ *
+ * 【本层专用的观测工具（A1/A2 学会，之后复用）】
+ *   · SELECT * FROM performance_schema.data_locks;        ← 直接看到加了哪些锁（MySQL 8.0）
+ *   · SELECT * FROM performance_schema.data_lock_waits;   ← 直接看到谁在等谁
+ *   · SHOW ENGINE INNODB STATUS\G                         ← LATEST DETECTED DEADLOCK 段
+ *   · SELECT * FROM information_schema.INNODB_TRX;        ← 当前有哪些事务、跑了多久
+ *   ⚠️ MVCC 的版本链【没有直接查询接口】（不像 PG 有 ctid），只能用现象证明：
+ *      快照读看到老值、当前读（FOR UPDATE）看到新值。
+ *
+ * ⚠️ 所有实验数据用英文（规则 16）；计时要看客户端自报的 (0.xx sec)，别手工打时间戳。
+ * ⚠️ 开班前先确认：【阶段①综合检验】【阶段②综合检验(L3)】两笔账都要还。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L4',
+  title: '事务与锁 ⭐⭐⭐',
+  subtitle: '面试题的另外 30% —— 全部实验都要开两个会话才做得出来',
+  status: 'todo',
+  goal: '能背出 ACID 各自靠什么实现（并答对"C 不是独立机制"这个陷阱题）；能画出 MVCC 的三要素并说清 RC / RR 的唯一区别；能亲手复现脏读 / 不可重复读 / 幻读；能说清间隙锁什么情况下会加、并动手证明它存在；能制造一次死锁并用 SHOW ENGINE INNODB STATUS 排查出来。',
+  estimate: '14 节 · 每节 30 min · 约 7 小时',
+  interviewRefs: [
+    '必考 #6 事务的隔离级别？MySQL 默认是哪个？',
+    '必考 #7 MVCC 是怎么实现的？RC 和 RR 的区别？',
+    '高频 #12 幻读是什么？InnoDB 怎么解决的？',
+    '高频 #13 间隙锁是什么？什么情况下会加？',
+    '高频 #14 死锁怎么产生、怎么排查、怎么避免？',
+    '加分题 #26 为什么互联网公司不建外键（从 L2 移来）',
+    '加分题 #27 长事务有什么危害？',
+    '（必考 #8 三种日志的【深入】版在 L5，本层只学"谁负责什么"）'
+  ],
+
+  environment: {
+    container: 'mysql-learn',
+    version: 'MySQL 8.0.46',
+    database: 'learn',
+    charset: 'utf8mb4 / utf8mb4_0900_ai_ci',
+    connect: 'docker exec -it mysql-learn mysql -uroot -p666666 --default-character-set=utf8mb4 learn   ← ⚠️ 本层要开【两个】这样的终端，会话 A / 会话 B',
+    runLabFile: 'docker exec -i mysql-learn mysql -uroot -p666666 --force --default-character-set=utf8mb4 learn < labNN.sql',
+    note: '⚠️ 本层几乎所有实验都需要【两个会话】同时开着 —— 一个会话里演示不出事务、MVCC、锁、死锁。约定：会话 A = 动手的那个，会话 B = 观察的那个。⚠️ 实验数据一律用英文（规则 16）。'
+  },
+
+  modules: [
+    /* ================= 模块 A：实验台 ================= */
+    {
+      id: 'A',
+      title: '搭实验台',
+      desc: '这一层不能用"一个会话跑几条 SQL"的方式教。第一节先把两个会话的规矩立起来，后面 13 节全靠它。',
+      lessons: [
+        {
+          id: 'A1',
+          title: '事务是什么 + 搭好"两个会话"的实验台',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应面试题：无 —— 本节是后面 13 节的基础设施】开两个终端各起一个 mysql 会话，约定 A 动手 / B 观察；然后用一个最简单的事务把"一个会话改了、另一个会话看不到"先看见一次，建立"两个会话是两个世界"的直觉。',
+          concepts: [
+            '事务 = 一组要么全做、要么全不做的操作；BEGIN 开始、COMMIT 生效、ROLLBACK 撤销',
+            '两个会话各有自己的连接（和自己的会话变量 / 事务状态）；会话 A 未提交的修改，会话 B 【看不到】—— 这就是"隔离"',
+            'L1 学过的 autocommit=1 在这里的意义：不开显式事务时，每条语句自己就是一个事务，所以"看一眼就提交了、没得回滚"'
+          ],
+          experiment: {
+            file: 'lab31.sql',
+            sql: [],
+            expected: '待设计（30 min、不分批次）：① 开两个终端（会话 A / 会话 B），各连一次 mysql；② 建 t_tx（id 主键 + val）；③ 会话 A：START TRANSACTION; UPDATE t_tx SET val=999 WHERE id=1;（不提交）；④ 会话 B：SELECT * FROM t_tx WHERE id=1 → 看到【老值】；⑤ 会话 A：COMMIT；⑥ 会话 B：再 SELECT 一次 → 看到【新值】。⑦ 顺带记下 SELECT @@transaction_isolation 的默认值（下一节要用）',
+            errors: '待设计：若会话 B 一开始就看到了新值，说明会话 A 没真的开事务（检查是不是 autocommit=1 且忘了 BEGIN）；两个会话必须分别连（同一个会话里测不出并发）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 B：ACID 与隔离级别（必考 #6） ================= */
+    {
+      id: 'B',
+      title: 'ACID 与隔离级别',
+      desc: '必考 #6。核心陷阱题是"C 一致性靠什么实现"—— 它不是独立机制。隔离级别则要用两个会话逐个把三种现象复现出来。',
+      lessons: [
+        {
+          id: 'B1',
+          title: 'ACID 各自靠什么实现（含三种日志速览）',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考 #6 的前置 + 必考 #8 的浅版】四行表格背下来：A=undo log、C=其他三个共同保证、I=MVCC+锁、D=redo log。⚠️ 只讲"谁负责什么"，redo 的循环写 / 两阶段提交 / binlog 深入全部留 L5。',
+          concepts: [
+            'A 原子性 → undo log（回滚）；D 持久性 → redo log（崩溃恢复）；I 隔离性 → MVCC + 锁；C 一致性 → 【不是独立机制】，由其他三个共同保证（陷阱题，答"靠 XXX 机制"就错了）',
+            '三种日志的分工速览：redo log（引擎层、物理日志、崩溃恢复）、undo log（引擎层、逻辑日志、回滚 + MVCC 版本链）、binlog（服务层、逻辑日志、主从复制 + 数据恢复）—— 深入版在 L5',
+            '动手证明 A：会话里 UPDATE 再 ROLLBACK，数据真的回去了（L1 已经见过一次，这次是"有意识"地用）'
+          ],
+          experiment: {
+            file: 'lab32.sql',
+            sql: [],
+            expected: '待设计：① 用 ROLLBACK 证明 undo log（A）；② 用"COMMIT 之后 kill 掉会话，重连数据还在"直观感受 D；③ 顺带 SHOW VARIABLES LIKE \'innodb_log%\' / \'log_bin\' 看一眼两种日志的开关，建立"它们真实存在"的印象',
+            errors: '待设计：第 ② 步若 kill 后数据没了，说明 COMMIT 没成功或连错了库；注意区分"回滚"和"崩溃恢复"是两件事',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'B2',
+          title: '隔离级别总览 + 复现脏读、不可重复读',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考 #6】先把 4 个级别 × 3 种现象的表填出来，然后用两个会话在【读未提交】下复现脏读，在【读已提交】下复现不可重复读。幻读留给下一节。',
+          concepts: [
+            '四个级别：RU（读未提交）/ RC（读已提交）/ RR（可重复读）/ SERIALIZABLE；MySQL 默认是 【RR】，而 Oracle / PostgreSQL 默认是 RC（跨库对比点）',
+            '三种现象：脏读（读到别人未提交的）/ 不可重复读（同一事务内两次读同一行，值变了）/ 幻读（同一事务内两次读同一范围，行数变了）',
+            '切换级别：SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;（会话级，只影响当前会话）'
+          ],
+          experiment: {
+            file: 'lab33.sql',
+            sql: [],
+            expected: '待设计：① 会话 A 设 RU → 会话 A BEGIN + UPDATE 不提交 → 会话 B（RU）SELECT 看到未提交的新值 = 脏读；② 两边都切 RC → 会话 A BEGIN + 读一次；会话 B UPDATE + COMMIT；会话 A 再读 → 值变了 = 不可重复读；③ 再切回 RR 做同样操作 → 值不变（下一节解释为什么）',
+            errors: '待设计：若 RR 下也能复现不可重复读，检查是否设成了 READ COMMITTED；级别切换必须用 SESSION（或只在当前会话生效），两个会话要分别设置',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'B3',
+          title: '幻读：标准 SQL 允许，InnoDB 基本解决了',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应高频题 #12】先复现"同一事务内两次范围查询，行数变了"的幻读，再看 RR 级别下 InnoDB 是怎么把它堵住的（揭示间隙锁的存在，但加锁细节留到 D2）。同时说清那个加分点：标准里 RR 是允许幻读的，是 InnoDB 自己多做了事。',
+          concepts: [
+            '幻读 = 同一事务内两次【范围查询】结果集行数不同（别人插入/删除让你"看到幻觉"）—— 和不可重复读的区别是"整行的值变了" vs "行数变了"',
+            'InnoDB 在 RR 下用【间隙锁】把范围里的空隙一起锁住 → 别人插不进来 → 基本消灭幻读（但这是 InnoDB 的增强，不是 SQL 标准的 RR）',
+            '⚠️ 快照读（普通 SELECT）和当前读（FOR UPDATE）在幻读上的表现不同 —— 这是面试追问点，C1 会展开'
+          ],
+          experiment: {
+            file: 'lab34.sql',
+            sql: [],
+            expected: '待设计：① RC 下：会话 A BEGIN + SELECT COUNT(*) WHERE id BETWEEN 1 AND 5；会话 B INSERT 一行 id=4 + COMMIT；会话 A 再 SELECT → 行数变了 = 幻读；② 切 RR 重做同样操作：会话 A 第二次 SELECT 行数【不变】（快照读）；③ 但若会话 A 用 SELECT ... FOR UPDATE（当前读）再读一次 → 会看到新插入的行（这一步是通往 C1 的钩子）',
+            errors: '待设计：若 RR 下会话 B 的 INSERT 被【卡住】而不是成功，说明间隙锁生效了（这本身是对的，说明改了隔离级别后行为不同）—— 把现象如实记下来，D2 会解释',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 C：MVCC（必考 #7，必问） ================= */
+    {
+      id: 'C',
+      title: 'MVCC ⭐ 必问，要能画图',
+      desc: '必考 #7。三要素 + RC/RR 的唯一区别，是全层最需要"能讲出来"的两节。版本链没法直接查，所以全靠现象证明。',
+      lessons: [
+        {
+          id: 'C1',
+          title: '快照读 vs 当前读',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考 #7 的前置概念】先建立最重要的一个分界：普通 SELECT 是【快照读】（走 MVCC，不加锁），而 FOR UPDATE / UPDATE / DELETE 是【当前读】（读最新 + 加锁）。用两个会话让"同一行、同一时刻、两个会话读到不同的值"发生一次。',
+          concepts: [
+            '快照读：普通 SELECT，走 MVCC 读历史版本，【不加锁】—— 所以读不会阻塞写、写不会阻塞读',
+            '当前读：SELECT ... FOR UPDATE / LOCK IN SHARE MODE / UPDATE / DELETE，读【最新已提交】的数据并加锁',
+            '这就是"为什么 MySQL 读多写少也不卡"的答案：读多半走 MVCC 不加锁'
+          ],
+          experiment: {
+            file: 'lab35.sql',
+            sql: [],
+            expected: '待设计：① 会话 B BEGIN + UPDATE t_tx SET val=111 WHERE id=1（不提交）；② 会话 A：SELECT * （快照读）→ 看到老值，且【不阻塞】；③ 会话 A：SELECT ... FOR UPDATE → 阻塞住（等会话 B 提交）或读到新值，取决于级别；④ 结论落到一句话：同一条 SQL，加不加 FOR UPDATE 是两个世界',
+            errors: '待设计：⚠️ 第 ③ 步会【卡住】，这是正常的 —— 卡住时不要以为程序死了，等 innodb_lock_wait_timeout（默认 50s）或回会话 B 提交/回滚即可。卡住本身就是证据',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C2',
+          title: 'MVCC 三要素：版本链 / ReadView / 可见性判断（要能画图）',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考 #7 的核心】背下三要素并画出一张图：每行有两个隐藏列（最近修改它的事务 ID + 指向 undo log 的指针），版本链串起来；ReadView 记录了"当时还有哪些事务在跑"；可见性判断就是拿版本链上的事务 ID 和 ReadView 比对。',
+          concepts: [
+            '版本链：每行隐藏列 DB_TRX_ID（最后改它的事务）+ DB_ROLL_PTR（指向 undo log 里的上一个版本）→ 串成一条链',
+            'ReadView：一张快照，记下生成那一刻"还有哪些事务没提交"（m_ids 活跃事务列表 + 最小/最大事务 ID）',
+            '可见性判断：顺着版本链往回找，找到第一个"对当前 ReadView 可见"的版本就是你要的值 —— 这就是"能读到历史"的原因'
+          ],
+          experiment: {
+            file: 'lab36.sql',
+            sql: [],
+            expected: '待设计（用现象反推，因为版本链没有查询接口）：① 会话 A BEGIN + UPDATE 同一行三次（val=1→2→3）不提交；② 会话 B 普通 SELECT → 看到老值（它在读版本链上的旧版本）；③ 会话 B SELECT ... FOR UPDATE → 看到最新的 3；④ 再让会话 A ROLLBACK，会话 B 再普通 SELECT → 回到最初的值；⑤ 让学生自己画出"这条版本链 + ReadView"的示意图并贴进看板',
+            errors: '待设计：⚠️ 本节最容易的失败是"想直接查版本链"——MySQL 没有这个接口（用 information_schema 里看不到 undo 内容）。必须接受"用现象证明"这个方式',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'C3',
+          title: 'RC 与 RR 的唯一区别：ReadView 什么时候生成',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应必考 #7 的后半，也是本题的"标准答案"}一句话：RC 每次 SELECT 都生成新 ReadView，RR 只在第一次 SELECT 生成然后一直复用。用同一组操作在两个级别下各跑一遍，让差别自己显出来。',
+          concepts: [
+            'RC：每次 SELECT 生成新 ReadView → 所以能读到别人刚提交的新数据（= 不可重复读的来源）',
+            'RR：第一次 SELECT 生成后【一直复用】→ 所以能"可重复读"',
+            '⚠️ 只有这一处不同 —— 其余机制（版本链、可见性判断）两个级别完全一样。面试答到这里才算答完整'
+          ],
+          experiment: {
+            file: 'lab37.sql',
+            sql: [],
+            expected: '待设计：把 B2 第 ②③ 步合成一个对照实验：① RC 下：会话 A BEGIN + 读一次；会话 B UPDATE+COMMIT；会话 A 再读 → 变了；② RR 下重做同一套 → 不变；③ 把两次结果并排贴上看板，一句话总结"差别只在 ReadView 的生成时机"',
+            errors: '待设计：若两边结果一样，检查级别是否真的切换了（SELECT @@transaction_isolation 在两个会话里各查一次）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 D：锁 ================= */
+    {
+      id: 'D',
+      title: '锁',
+      desc: '高频 #13 的全块。MySQL 8.0 的 performance_schema.data_locks 能让"锁"第一次变得可见 —— 这是本模块的核心武器。',
+      lessons: [
+        {
+          id: 'D1',
+          title: '锁的全景 + 用 data_locks 把锁"看"出来',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应高频题 #13 的前置】先把五种锁的名字和关系摆清楚（表锁 / 意向锁 / 记录锁 / 间隙锁 / 临键锁），然后立刻用 performance_schema.data_locks 把它们从"名词"变成"能看见的行"。',
+          concepts: [
+            '表锁 vs 行锁：InnoDB 支持行锁（粒度小、并发好），但代价是必须靠【索引】定位行 —— 没走索引就会退化成锁很多行甚至锁全表（这条是 E 层的伏笔）',
+            '意向锁（IS/IX）：表级锁，作用是【快速判断表里有没有行锁】—— 加表锁时不用逐行检查',
+            '记录锁 / 间隙锁 / 临键锁：分别锁"某条记录"、"两条记录之间的空隙"、"记录 + 它前面的空隙"；RR 下默认用临键锁'
+          ],
+          experiment: {
+            file: 'lab38.sql',
+            sql: [],
+            expected: '待设计：① 建 t_lock（id 主键 + a 普通索引 + b 无索引）+ 6 行数据；② 会话 A BEGIN + SELECT ... FOR UPDATE，同时用【会话 B】查 SELECT * FROM performance_schema.data_locks\\G 把锁打出来；③ 依次对比这几种写法锁了什么：WHERE id=3（主键）/ WHERE a=3（普通索引）/ WHERE b=3（无索引）→ 第三种应该锁住一大堆行',
+            errors: '待设计：data_locks 在 MySQL 8.0 才有（5.7 要看 INNODB_LOCKS，已废弃）；若查不到锁，确认会话 A 的事务还没提交',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D2',
+          title: '间隙锁与临键锁：什么情况下会加',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应高频题 #13 核心】用"插入被卡住"这一件事证明间隙锁真实存在：会话 A 锁住一个【不存在的 id】，会话 B 插入相邻的 id 就会阻塞。再总结加锁规则两条。',
+          concepts: [
+            '加锁规则（加分点）：① 唯一索引 + 等值命中 → 退化成【记录锁】 ② 非唯一索引、或等值但【没命中】、或范围查询 → 【间隙锁 / 临键锁】',
+            '间隙锁的典型现场：WHERE id = 5 FOR UPDATE，而 id=5 不存在 → 锁住 (4, 6) 这个间隙 → 别人插 id=5 会被阻塞',
+            '间隙锁的两个特点：① 只在 RR 下大量出现 ② 它锁的是"别人插不进来"，不是"自己读不到"—— 所以它只挡写、不挡读'
+          ],
+          experiment: {
+            file: 'lab39.sql',
+            sql: [],
+            expected: '待设计：① 会话 A BEGIN + SELECT * FROM t_lock WHERE id = 5 FOR UPDATE（id=5 不存在）；② 会话 B 查 data_locks 看是不是 GAP 锁；③ 会话 B INSERT id=5 → 【卡住】= 间隙锁存在的铁证；④ 会话 A ROLLBACK → 会话 B 的插入立刻成功；⑤ 换成"唯一索引等值命中"再走一遍 → 这次应该是 RECORD 锁、且插入别的 id 不被挡',
+            errors: '待设计：⚠️ 会话 B 的 INSERT 卡住时不要慌，去会话 A 敲 ROLLBACK 就解开了；若怎么都不卡，检查隔离级别是不是被切成 RC 了（RC 下没有间隙锁）',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'D3',
+          title: '加锁规则速查：同一条 SQL 到底锁了哪几行',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应高频题 #13 的实战版】把 D1/D2 的结论整理成一张"写法 → 加什么锁"的速查表，再用 data_locks 逐条验证。重点是那个反直觉的：WHERE 用了【无索引列】时，InnoDB 只能退化成锁住几乎所有行。',
+          concepts: [
+            '速查：主键等值命中 → 记录锁；主键范围 → 临键锁（含上界间隙）；无索引列 → 锁住扫描到的【所有行】（所以必须给 WHERE 列建索引）',
+            '⚠️ 反直觉但重要：无索引的 UPDATE 不是"锁一行"，而是"把扫过的每一行都锁上" → 并发下直接变串行（这条比"索引失效慢"严重得多）',
+            'lock_wait_timeout：等锁超过 innodb_lock_wait_timeout（默认 50 秒）会报 ERROR 1205，这是排查锁问题的第一手信息'
+          ],
+          experiment: {
+            file: 'lab40.sql',
+            sql: [],
+            expected: '待设计：① 用 data_locks 逐条验证："主键等值 / 主键范围 / 普通索引等值 / 无索引列"四种写法各锁了几行，填成表格；② 故意制造一次超时：把 innodb_lock_wait_timeout 设成 3 秒，让会话 B 等一次 → 看到 ERROR 1205；③ 用 data_lock_waits 把"谁在等谁"打出来',
+            errors: '待设计：若 data_lock_waits 为空，说明没有正在等的锁 —— 必须两个会话同时有动作才看得到',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 E：死锁与长事务 ================= */
+    {
+      id: 'E',
+      title: '死锁与长事务',
+      desc: '高频 #14 + 加分题 #27。死锁必须亲手制造一次才记得住 —— 而且它的报错信息是面试的现成素材。',
+      lessons: [
+        {
+          id: 'E1',
+          title: '死锁：亲手制造一次 + 排查 + 避免',
+          status: 'todo',
+          weight: '高',
+          estimate: '30 min',
+          plan: '【对应高频题 #14】两个会话以【相反的顺序】各锁两行 → 制造一次真死锁，拿到 ERROR 1213；然后用 SHOW ENGINE INNODB STATUS 的 LATEST DETECTED DEADLOCK 段把现场读出来。最后收口成三问的答案。',
+          concepts: [
+            '怎么产生：两个事务以【相反的顺序】获取同一批锁（A 拿 1 等 2，B 拿 2 等 1）',
+            '怎么排查：SHOW ENGINE INNODB STATUS\\G → LATEST DETECTED DEADLOCK 段；MySQL 8.0 还可以用 performance_schema.data_lock_waits',
+            '怎么避免：固定加锁顺序 / 缩短事务 / 减少锁范围（用索引）/ 把大事务拆小；⚠️ InnoDB 会【自动检测并回滚代价小的那个事务】—— 这也是"死锁不用怕、但要知道怎么查"的原因'
+          ],
+          experiment: {
+            file: 'lab41.sql',
+            sql: [],
+            expected: '待设计：① 会话 A BEGIN + UPDATE id=1；② 会话 B BEGIN + UPDATE id=2；③ 会话 A UPDATE id=2 → 卡住；④ 会话 B UPDATE id=1 → 报 ERROR 1213 Deadlock found；⑤ 在任一会话跑 SHOW ENGINE INNODB STATUS\\G，把 LATEST DETECTED DEADLOCK 段抄下来逐行解读（哪两个事务、各自持有什么锁、在等什么）',
+            errors: '待设计：⚠️ 第 ③ 步必须真的卡住才有死锁（若 A 直接成功，说明 B 没先锁住 id=2）；死锁由 InnoDB 自动检测，可能几秒后才报出来，耐心等',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'E2',
+          title: '长事务的危害 + 怎么发现它',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应加分题 #27】亲手制造一个长事务，然后量出它的三宗罪：undo 版本链变长、阻塞别人、加剧主从延迟。重点学"怎么发现长事务"（这是运维/排查的硬技能）。',
+          concepts: [
+            '三宗罪：① undo log 不能清理 → 版本链越来越长 → 查询变慢 ② 锁持有时间长 → 阻塞别人 ③ 主从延迟加剧',
+            '怎么发现：SELECT * FROM information_schema.INNODB_TRX ORDER BY trx_started;（看哪个事务开了很久、跑了多少行）；或 SHOW ENGINE INNODB STATUS 里的 History list length',
+            '预防：事务里别做远程调用 / 别等用户输入 / 批量操作分批提交（这也是 Java 面试里"@Transactional 里调远程接口"那道题的底层原因）'
+          ],
+          experiment: {
+            file: 'lab42.sql',
+            sql: [],
+            expected: '待设计：① 会话 A BEGIN + 修改一行不提交（长事务开始）；② 会话 B 记下 SHOW ENGINE INNODB STATUS 里 History list length 的值；③ 会话 B 对同一行反复 UPDATE + COMMIT 若干次；④ 会话 B 再看 History list length → 明显变长（undo 版本链没法清理）；⑤ 会话 B 查 INNODB_TRX 看那个长事务跑了多久；⑥ 会话 A COMMIT 后再看一次 History list length → 回落',
+            errors: '待设计：History list length 是片段式的文本，需要 grep 出来；数值变化可能不夸张，重点看【趋势】而不是绝对值',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    },
+
+    /* ================= 模块 F：工程实践收口 ================= */
+    {
+      id: 'F',
+      title: '工程实践收口',
+      desc: '两个"面试会问、实盘天天踩"的收口题：为什么不建外键，以及事务在真实项目里最容易怎么出事。',
+      lessons: [
+        {
+          id: 'F1',
+          title: '为什么互联网公司不建外键',
+          status: 'todo',
+          weight: '中',
+          estimate: '25 min',
+          plan: '【对应加分题 #26 —— 从 L2 移来，因为要有了锁的知识才讲得透】先亲眼看一次外键怎么"卡住"写入，再从性能 / 分库分表 / 运维三个角度说清为什么不建，最后回答那个必然的追问：那数据一致性谁来保证？',
+          concepts: [
+            '外键的实际代价：每次写入都要【额外查一次父表】并加锁 → 高并发下争抢更严重；DDL / 数据迁移时顺序受限',
+            '分库分表之后【物理上无法约束】—— 这是国内互联网不建外键最硬的理由',
+            '一致性改由【应用层】保证；代价是可能出现脏数据，需要靠对账 / 定期校验来兜底（回答追问的落点）'
+          ],
+          experiment: {
+            file: 'lab43.sql',
+            sql: [],
+            expected: '待设计：① 建父子两张表并加 FOREIGN KEY；② 演示：插一条"父表没有的子记录" → 报错 1452；③ 用两个会话演示外键带来的【额外锁等待】；④ DROP 掉外键再跑同样操作 → 对比；⑤ 收口：AI 扮面试官问"那你们怎么保证一致性？"',
+            errors: '待设计：MySQL 8.0 默认开启外键检查（foreign_key_checks=1）；若插入非法子记录没报错，先确认引擎是 InnoDB',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        },
+        {
+          id: 'F2',
+          title: '事务的工程坑合集：隐式提交 / 大事务拆分 / 锁超时',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '【对应实盘高频踩坑，同时回收 L1 的隐式提交】把三个坑各撞一次：事务里混 DDL 导致隐式提交、大事务一次性提交把锁持有太久、以及锁等待超时。收口结论：真实项目里事务要【短】。',
+          concepts: [
+            '隐式提交（L1 见过 TRUNCATE，这里是 DDL 全家）：事务里执行 DDL / TRUNCATE / 用户授权等语句，会把你之前的事务【偷偷提交掉】→ ROLLBACK 已经来不及',
+            '大事务拆分：批量操作分 N 批、每批提交；避免"一万行一个事务"（锁持有久 + undo 大 + 主从延迟）',
+            '锁超时：innodb_lock_wait_timeout 默认 50 秒，超时报 ERROR 1205；生产里一般会调小（几秒），让请求快速失败而不是把线程池耗光'
+          ],
+          experiment: {
+            file: 'lab44.sql',
+            sql: [],
+            expected: '待设计：① 会话 A BEGIN + UPDATE；然后执行一句 DDL（如在另一张表加列）→ 再 ROLLBACK → 发现 UPDATE 已经被提交了；② 演示"一批 1 万行一次性插入" vs "分 10 批 × 1000 行"的差异（看锁/事务大小）；③ 把 innodb_lock_wait_timeout 调小，制造一次 1205 报错',
+            errors: '待设计：DDL 在 MySQL 8.0 里有些是 INSTANT 的但仍会隐式提交 —— 如果没看到预期效果，换 ALTER TABLE 加一个普通列再试',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
 window.__TOPICS__.push({ id: 'Database-Learn', name: 'MySQL', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
 
 /* ===================== 专题：Java 基础 [Java-Basic-Learn] ===================== */
