@@ -2599,9 +2599,61 @@ window.ROADMAP_DATA.levels.push({
             'TRUNCATE 的"表结构还在但自增从 1 开始"要动手验证',
             '行转列用 CASE WHEN + 聚合；列转行用 UNION ALL'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：同一张表分别 DELETE 和 TRUNCATE 后观察 AUTO_INCREMENT 值' },
-          findings: [],
-          pitfalls: [],
+          experiment: {
+            file: 'lab15.sql',
+            sql: [
+              '-- 批次一（已完成，2026-10-02）：删除三兄弟 —— 实验 1~35',
+              '-- 实验1~3：建表造数 —— 这次 id 是 1~5（全新表，计数器从 1 开始）',
+              'DROP TABLE IF EXISTS t_account; CREATE TABLE t_account (id INT PRIMARY KEY AUTO_INCREMENT, owner VARCHAR(20), balance INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;',
+              "INSERT INTO t_account (owner, balance) VALUES ('Alice',1000),('Bob',2000),('Carol',3000),('Dave',4000),('Eve',5000);",
+              '-- 实验4~6：DELETE 删光后再插 —— 猜 id 是几？答案 6（DELETE 不重置自增）',
+              "DELETE FROM t_account; INSERT INTO t_account (owner, balance) VALUES ('Frank', 6000); SELECT * FROM t_account;  -- id = 6，不是 1",
+              '-- 实验7~8：TRUNCATE 后再插 —— id 回到 1',
+              "TRUNCATE TABLE t_account; INSERT INTO t_account (owner, balance) VALUES ('Alice', 1000); SELECT * FROM t_account;  -- id = 1",
+              '-- 实验9：TRUNCATE 不能带 WHERE',
+              'TRUNCATE TABLE t_account WHERE id = 1;  -- ERROR 1064 语法错误',
+              '-- 实验10~14：DELETE 可回滚（可一次粘完）',
+              "TRUNCATE TABLE t_account; INSERT INTO t_account (owner, balance) VALUES ('Alice',1000),('Bob',2000),('Carol',3000); START TRANSACTION; DELETE FROM t_account; SELECT COUNT(*) FROM t_account;  -- 0 ; ROLLBACK; SELECT COUNT(*) FROM t_account;  -- 3 回来了",
+              '-- 实验15~18：TRUNCATE 不可回滚（可一次粘完）',
+              'START TRANSACTION; TRUNCATE TABLE t_account; SELECT COUNT(*) FROM t_account;  -- 0 ; ROLLBACK; SELECT COUNT(*) FROM t_account;  -- 还是 0，救不回来',
+              '-- 实验19~23：⚠️ 本节最重要 —— TRUNCATE 的隐式提交陷阱（截断的是【另一张表】也照样中招）',
+              "TRUNCATE TABLE t_account; INSERT INTO t_account (owner, balance) VALUES ('Alice',1000),('Bob',2000),('Carol',3000); START TRANSACTION; UPDATE t_account SET balance = 0; SELECT * FROM t_account;  -- 全 0 ; TRUNCATE TABLE t_bulk;  -- 隐式提交！; ROLLBACK;  -- 无效 ; SELECT * FROM t_account;  -- 还是全 0",
+              '-- 实验24~27：DROP 连表结构一起删',
+              "DROP TABLE t_account; SHOW TABLES LIKE 't_account';  -- Empty set ; SELECT * FROM t_account;  -- ERROR 1146 doesn't exist",
+              '-- 实验28~35：速度对比（⚠️ 教案有 bug，见 pitfalls —— 计时必须看客户端自报的 (0.xx sec)）',
+              'DROP TABLE IF EXISTS t_speed; CREATE TABLE t_speed (id INT PRIMARY KEY AUTO_INCREMENT, val INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;',
+              'SET SESSION cte_max_recursion_depth = 200000; INSERT INTO t_speed (val) WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<100000) SELECT n FROM seq;  -- 10 万行',
+              '-- ❌ 不要用 SET @t := SYSDATE(6) 手工打时间戳（会把"手速"算进去）。直接看客户端自报：DELETE 0.18 sec / TRUNCATE 0.01 sec',
+              '-- 复测 3 轮（容器内 10 万行）：DELETE 0.1406 / 0.1843 / 0.1406 vs TRUNCATE 0.0148 / 0.0111 / 0.0153 ≈ 10 倍',
+              '-- 批次二（待做）：行转列（CASE WHEN + 聚合）/ 列转行（UNION ALL）'
+            ],
+            expected: '实验3 → id 1~5；实验6 → **id = 6**（DELETE 不重置自增）；实验8 → **id = 1**（TRUNCATE 重置）；实验9 → ERROR 1064；实验10~14 → 事务内 COUNT 0 / ROLLBACK 后 3（DELETE 可回滚）；实验15~18 → 事务内 0 / ROLLBACK 后仍是 0（TRUNCATE 不可回滚）；实验19~23 → TRUNCATE 另一张表后 ROLLBACK 无效，balance 仍是全 0（隐式提交）；实验24~27 → SHOW TABLES 空、SELECT 报 ERROR 1146、t_bulk 仍在；实验28~35 → 客户端自报 DELETE 0.18s vs TRUNCATE 0.01s ≈ 18 倍',
+            errors: '实验6 拿到 id=1 → 说明表是"新建后第一次插入"，先跑完实验 4~6 再看；实验15~18 里 ROLLBACK 把数据救回来 → TRUNCATE 没真的执行，检查拼写；实验19~23 里 ROLLBACK 后 balance 变回 1000/2000/3000 → 版本行为不同，务必上报；实验28 报 Recursive query aborted → cte_max_recursion_depth 没设上（必须和 INSERT 同会话，D1 踩过同一个坑）',
+            evidence: '学生 2026-10-02 实跑全部 35 条，与预期逐条一致：id=6 → id=1 → ERROR 1064 → DELETE 回滚后 3 行 → TRUNCATE 回滚后仍 0 行 → 隐式提交后 balance 仍全 0 → DROP 后 ERROR 1146 → 计时数据见 findings（两次实测矛盾，已查明是教案计时方法有 bug）',
+            caveat: '⚠️ 实验 28~35 的计时方式是【教案 bug】：用 `SET @t := SYSDATE(6)` 手工打时间戳，会把学生两次回车之间的间隔算进去。批量模式预演（无人工延迟）掩盖了这一点 → 学生交互式测出 TRUNCATE 0.648s > DELETE 0.242s，与客户端自报的 0.01s / 0.18s 矛盾。正确做法：以客户端自报的 (0.xx sec) 为准。'
+          },
+          findings: [
+            '⭐⭐ 三兄弟的分界（面试一句话）：DELETE = 擦字（能挑行、能反悔、自增不归零、表结构保留）；TRUNCATE = 换纸（全清、不能反悔、自增归 1、表结构保留）；DROP = 撕本子（连表结构都没）',
+            '`DELETE FROM t_account;` 删光 5 行后再 INSERT → 拿到 **id = 6**（不是 1）：自增计数器是"发号机"，DELETE 只把已发的号作废，机器继续往下发。这是学生上节课留下的"作案痕迹"（id 11~15）的真相',
+            '`TRUNCATE TABLE t_account;` 后再 INSERT → **id = 1**：TRUNCATE 相当于把发号机拆了重装',
+            'TRUNCATE 不能带 WHERE（ERROR 1064）—— 它没有"只截一部分"的概念，这也是它和 DELETE 最直观的区别',
+            'DELETE 逐行删 + 每行写 undo log → 可回滚；TRUNCATE 丢页重建、不记账 → 不可回滚。实验 10~18 用同一张表跑出对比：DELETE 后 ROLLBACK 拿回 3 行，TRUNCATE 后 ROLLBACK 仍是 0 行',
+            '⭐⭐ TRUNCATE 会触发【隐式提交】：事务里改了 A 表 → TRUNCATE 了另一张 B 表（t_bulk）→ 之后 ROLLBACK 完全无效，A 表的修改已被提交。这是实盘真会出事故的坑（DDL 都会隐式提交）',
+            '`ALTER TABLE ... AUTO_INCREMENT = 1;` 只能在【表为空】时把计数器归零。表里还留着 id=6 的行时去 ALTER 完全无效，下一条插入还是 7（2026-10-02 实测确认）',
+            'DROP 之后 `SHOW TABLES LIKE` 为空、`SELECT` 报 ERROR 1146 —— 表结构本身消失，这是与 DELETE / TRUNCATE 最本质的区别',
+            '自增计数器不影响数据的锁：DELETE 逐行加 X 行锁且锁到事务结束，并发下会长时间堵人；TRUNCATE 是 DDL 只拿 MDL，不逐行加行锁 → 所以"一瞬间"完成（L4 正题）',
+            '📌 时间测量：交互式下用 `SET @t := SYSDATE(6)` 手工打时间戳会把"人手速"算进去 → 必须看 mysql 客户端自报的 `(0.xx sec)`',
+            '10 万行实测（容器内，复测 3 轮，可复现）：DELETE 0.14~0.18s vs TRUNCATE 0.011~0.015s ≈ 10 倍；客户端自报 0.18 vs 0.01 ≈ 18 倍。原因：DELETE 逐行删 + 逐行写 undo log + 逐行维护索引，代价随行数增长；TRUNCATE 只做"丢页 + 建页"，代价与行数无关',
+            '⭐⭐ `executeUpdate()` 返回的是 Changed 不是 Matched —— 实测三种场景：① 值没变（UPDATE ... SET balance=1000 WHERE id=1，而它本来就是 1000）→ **0** ② WHERE 没命中（id=99999 不存在）→ **0** ③ 真的改了 → 1。⚠️ 前两种含义完全不同却都返回 0 ⇒ **绝不能用 `rows > 0` 判断"记录是否存在"**',
+            '📌 `information_schema.TABLES.AUTO_INCREMENT` 在 MySQL 8.0 默认缓存 86400 秒 → 会读到过期值；要看真值先 `SET SESSION information_schema_stats_expiry = 0;`'
+          ],
+          pitfalls: [
+            '（AI）⭐【教案 bug · 第 5 次被抓，且是"预演通过却仍然错"的第一次】实验 32~35 让学生用 `SET @t := SYSDATE(6)` 手工打时间戳测 DELETE / TRUNCATE，但该方法的计时范围包含"学生两次回车之间的间隔"→ 学生交互式测出 TRUNCATE 0.648s > DELETE 0.242s，与客户端自报的 0.01s / 0.18s 完全矛盾。根因：我用【批量模式】预演（无人工延迟），没有复刻学生的【交互式】操作方式。已在回复中向学生认错并给出复测数据（3 轮：DELETE 0.14~0.18s vs TRUNCATE 0.011~0.015s）。教训：**预演必须复刻学生的操作方式**',
+            '（AI）设计 Q4 时把答案预设成"1"，实际正确答案是 **0** —— 学生答"1"是完全合理的第一反应（"命中了一行嘛"），恰恰说明这题值得考。已在回复中讲清 Matched vs Changed',
+            '（学生）Q4 第一次直接拒答（"我不知道，不想管这个"）→ 处理：说明它是 E1 的复习题、不退回 E1，但会进入阶段①综合检验；同时把题目压缩成"只要一个数字"的微检。学生随即作答（说明题目太长/太抽象时，压缩成单点判断题更有效）',
+            '（学生）Q4 微检答错（答"1"，正确是 0）→ 已讲错因，并换成"两条 SQL 返回值对比"的同类型题重问',
+            '（学生）Q3 只给了命令、没答"为什么"，追问后才补上（"因为表已经被 drop 了，重新建表就会让计数器清空"）✅ —— 与 D3/E1 同一个老毛病：会做、不会说'
+          ],
           quiz: []
         }
       ]
