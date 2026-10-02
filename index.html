@@ -541,6 +541,16 @@ window.ROADMAP_DATA = { levels: [] };
  * 4. 开新层级时：复制 L1.js 的结构新建 L2.js，然后在下面 levels 里加一行。
  *    注意：开新层级前要**先把这个层级的全部课程规划写进数据文件**，
  *    这样用户可以开一个干净的会话从头学，不会因为上下文超限而丢掉规划。
+ *
+ * 5. ⚠️⚠️ 【欠账清单 —— 接手前必看】
+ *    · 【阶段①综合检验】L1 的 15 节课（A~E）已全部 done，但按 MySQL学习指导.md
+ *      5.1 规则 2，阶段结束必须做一次 20~30 分钟的综合检验（AI 扮面试官，覆盖 A~E）。
+ *      学生 2026-10-02 主动要求【延后】（当天已连学 2h15m）。
+ *      ⇒ 性质：**欠的账，不是取消**。开始 L2 第一节（A1）之前先问学生要不要补做。
+ *      ⇒ 层级状态已按“进入 L2”更新（plan.js + L1.js 的 L1 都已 done），
+ *        所以检验通过后**不需要**再改任何层级状态，直接开 A1 即可。
+ *    · 【规则 16 同步】“实验数据一律用英文”已写入 MySQL学习指导.md，
+ *      ⚠️ Redis-Learn / Java-Basic-Learn 两份指导**待同步**。
  * ===================================================================== */
 
 window.ROADMAP_DATA = window.ROADMAP_DATA || {};
@@ -573,17 +583,17 @@ window.ROADMAP_DATA.overview = {
       id: 'L1',
       file: 'data/L1.js',
       title: 'SQL 语言基础',
-      status: 'doing',
-      meta: '15 节 · 进行中',
+      status: 'done',
+      meta: '15 节 · 已完成',
       summary: '查询的执行骨架、聚合与集合、多表、窗口函数、写操作。目标是能独立写出面试常见手撕题。'
     },
     {
       id: 'L2',
-      file: null,
+      file: 'data/L2.js',
       title: '表设计 / 范式',
-      status: 'todo',
-      meta: '约 5 节 · 未规划',
-      summary: '三大范式与反范式、主键选型、金额与时间字段类型、为什么不建外键。'
+      status: 'doing',
+      meta: '9 节 · 已规划（2026-10-02）',
+      summary: '三大范式与反范式、字段类型选型（整数/金额/时间/字符串）、主键与约束，最后一节把需求翻译成表结构。⚠️ 开班前先补做【阶段①综合检验】（见交接说明第 5 条）。'
     },
     {
       id: 'L3',
@@ -847,9 +857,9 @@ window.ROADMAP_DATA.levels.push({
   id: 'L1',
   title: 'SQL 语言基础',
   subtitle: '从"会写 CRUD"到"能独立写出面试手撕题"',
-  status: 'doing',
+  status: 'done',
   goal: '掌握 SELECT 的完整执行骨架，能独立写出多表 JOIN、分组取 TopN、窗口函数三类高频手撕题。',
-  nextAction: '⭐ L1 的 15 节课（A~E）已全部 done。下一动作不是 L2，而是【阶段①综合检验】：AI 扮面试官 20~30 分钟，覆盖 A~E 全部内容（见 MySQL学习指导.md 5.1 规则 2）。通过后：本文件 L1 status → done，plan.js 里 L1 → done、L2 → doing（两处一起改）。',
+  nextAction: '⭐ L1 的 15 节课（A~E）已全部 done，本层级已收口。⚠️ 但【阶段①综合检验】尚未做 —— 学生 2026-10-02 主动要求延后（当天已连学 2h15m）。这是**欠的账，不是取消**：开始 L2 第一节（A1）之前先问学生要不要补做（AI 扮面试官 20~30 分钟，覆盖 A~E，见 MySQL学习指导.md 5.1 规则 2）。⚠️ 检验通过后**不需要**再改任何层级状态，直接开 A1。',
   estimate: '15 节 · 净学习约 11 小时 · 加 LeetCode 30 题共约 20 小时',
   interviewRefs: ['Q11 COUNT 家族', 'Q18 WHERE vs HAVING', '手撕题：分组取 TopN / 连续 N 天'],
 
@@ -2907,7 +2917,7 @@ window.ROADMAP_DATA.levels.push({
           experiment: {
             file: 'lab20.sql',
             sql: [],
-            expected: '待设计：1) 往 TIMESTAMP 塞 2039 年 → 报错/截断；2) 改会???（时钟/时区）SET time_zone = "+00:00" / "+09:00" → 同一行 TIMESTAMP 与 DATETIME 显示不同；3) ON UPDATE 自动更新行为验证'
+            expected: '待设计：1) 往 TIMESTAMP 塞 2039 年 → 报错/截断；2) SET time_zone = "+00:00" 与 "+09:00" 各查一次 → 同一行 TIMESTAMP 显示不同、DATETIME 不变；3) ON UPDATE 自动更新行为验证'
           },
           findings: [],
           pitfalls: [],
