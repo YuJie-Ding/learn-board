@@ -2743,6 +2743,100 @@ window.ROADMAP_DATA.levels.push({
     }
   ]
 });
+/* =====================================================================
+ * L2.js —— 表设计 / 范式（1 节 · 30 min）
+ * ---------------------------------------------------------------------
+ * 格式约定见 roadmap/README.md
+ *
+ * ⚠️ 这一层的规划在 2026-10-02 被【压缩过两次】：
+ *      第 1 版：9 节（按"知识点铺满"排的）—— 学生指出"太多太复杂了"
+ *      第 2 版：1 节 30 min（按"L3 到底需要什么"排的）← 本版
+ *
+ * 【为什么砍到只剩 1 节 —— 数据说话】
+ *   学生自己的 MySQL学习指导.md 第 2 部分写着：
+ *     "权重：L3 + L4 占面试题的 60%，L6 占 25%，其他占 15%"
+ *   第 3 部分的三张清单（必考 10 条 / 高频 10 条 / 加分 10 条）里，
+ *   来自 L2 的只有 2 条，而且都是【加分题】（出现率 < 40%）：
+ *     #25 为什么用自增主键而不是 UUID
+ *     #26 为什么互联网公司不建外键
+ *   「三大范式」在三张清单里一次都没出现。
+ *   ⇒ 结论：L2 的成本必须压到最小，把时间让给 L3 / L4 / L5 / L6。
+ *
+ * 【被砍掉的内容去哪了】
+ *   · 范式（1NF/2NF/3NF + 反范式）      → 整块删除，记在 plan.js「以后补」清单
+ *   · 为什么不建外键（加分题 #26）      → 移到 L4 末尾（有锁/性能知识才讲得透）
+ *   · UNSIGNED / TINYINT(1) 细节        → 只留一句结论，不穷举
+ *   · 字符集历史 / CHAR vs TEXT 细节     → 只留一句结论
+ *   · 综合实战 D1（订单表设计）          → 删除（回报率低；需要时并进 L6）
+ *
+ * 【本层的唯一使命】
+ *   把 L3 的地基铺好 —— 让"聚簇索引 = 主键""二级索引叶子存主键""主键要短"
+ *   "VARCHAR 太长建不了索引" 这四句话在 L3 开讲时不需要临时补课。
+ *
+ * ⚠️ 遵循学生 2026-10-02 新增的【规则 17】：单节课 ≤ 30 min，且不要分批次。
+ *
+ * ⚠️ 开班前必须先问一句：【阶段①综合检验】（L1 的 A~E）还没做。
+ *    见 plan.js 交接说明第 5 条与 L1.js 的 nextAction。
+ * ===================================================================== */
+
+window.ROADMAP_DATA = window.ROADMAP_DATA || {};
+window.ROADMAP_DATA.levels = window.ROADMAP_DATA.levels || [];
+
+window.ROADMAP_DATA.levels.push({
+  id: 'L2',
+  title: '表设计（压缩版）',
+  subtitle: '只学 L3 用得上的那一半 —— 30 分钟铺完地基就走',
+  status: 'doing',
+  goal: '拿到一张"字段类型默认答案"速查表；亲眼看见"金额用浮点会算错"；讲透一条 —— 主键为什么默认是自增 BIGINT（这是 L3 的地基）。范式、外键、字符集历史等 L3/L4 用不到的内容一律不展开。',
+  estimate: '1 节 · 30 min（原 9 节方案已作废，见文件头注释）',
+  interviewRefs: [
+    '加分题 #25 为什么用自增主键而不是 UUID（本层唯一讲透的知识点）',
+    '加分题 #26 为什么不建外键 → 已移到 L4 末尾'
+  ],
+
+  environment: {
+    container: 'mysql-learn',
+    version: 'MySQL 8.0.46',
+    database: 'learn',
+    charset: 'utf8mb4 / utf8mb4_0900_ai_ci',
+    connect: 'docker exec -it mysql-learn mysql -uroot -p666666 --default-character-set=utf8mb4 learn',
+    runLabFile: 'docker exec -i mysql-learn mysql -uroot -p666666 --force --default-character-set=utf8mb4 learn < labNN.sql',
+    note: '运行 lab 文件一律加 --force，因为部分语句是"故意报错"的；不加会中断整个文件。⚠️ 实验数据一律用英文（规则 16）。'
+  },
+
+  modules: [
+    {
+      id: 'A',
+      title: '表设计的默认答案',
+      desc: '不给"设计方法论"，只给"行业默认值"：看到这类字段，直接用这个类型，理由一句话。',
+      lessons: [
+        {
+          id: 'A1',
+          title: '字段类型的默认答案 + 主键为什么是自增 BIGINT',
+          status: 'todo',
+          weight: '中',
+          estimate: '30 min',
+          plan: '30 分钟拿三件东西：① 一张"字段类型默认答案"速查表（主键/金额/时间/字符串/状态/软删除）；② 亲眼看见"金额用 DOUBLE 会算错"（3 分钟事故 demo）；③ 讲透一条 —— 主键为什么默认是自增 BIGINT。其余全部只给结论，不展开。',
+          concepts: [
+            '主键默认自增 BIGINT —— 因为 InnoDB 的聚簇索引【就是主键】，而所有二级索引的叶子存的也是【主键值】：主键越短、越有序，全表索引越小越快（L3 开讲时直接用这条）',
+            '金额用 DECIMAL 不用 FLOAT/DOUBLE（浮点是近似值，会算错钱）；时间用 DATETIME（TIMESTAMP 有 2038 和时区两笔账）；字符串用 VARCHAR + utf8mb4（MySQL 的 utf8 是假 UTF-8，存不了 emoji）',
+            'VARCHAR 有长度上限：InnoDB 单列索引最多 3072 字节，太长就【建不了索引】—— 这是 L3 的门票'
+          ],
+          experiment: {
+            file: 'lab16.sql',
+            sql: [],
+            expected: '待设计（严格控制在 30 min 内、【不分批次】）：\n① 3 分钟事故 demo：同一张表并排建三个列 DOUBLE / FLOAT / DECIMAL(10,2)，各插 0.1 与 0.2 再 SUM —— 三种类型给出三个不同答案，金额为什么必须 DECIMAL 一目了然；\n② 一张"字段类型默认答案"速查表：主键 / 金额 / 时间 / 字符串 / 状态 / 软删除 各用什么类型 + 一句话理由；\n③ 只讲透一条：自增 BIGINT 作主键（写一遍 CREATE TABLE，指出 PRIMARY KEY 落在哪、为什么它决定了整张表的存储）—— 其余内容一句结论带过，不穷举取值范围、不做范式拆表练习',
+            errors: '待设计：Double/Float 的和若因版本或计算顺序显示成 0.3，换更多位小数或加更多笔（如 0.1 加十次）再试；DECIMAL 若报错检查 M/D 是否够大',
+            evidence: '待设计'
+          },
+          findings: [],
+          pitfalls: [],
+          quiz: []
+        }
+      ]
+    }
+  ]
+});
 window.__TOPICS__.push({ id: 'Database-Learn', name: 'MySQL', overview: window.ROADMAP_DATA.overview, levels: window.ROADMAP_DATA.levels });
 
 /* ===================== 专题：Java 基础 [Java-Basic-Learn] ===================== */
