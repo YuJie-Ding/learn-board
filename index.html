@@ -2452,24 +2452,145 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'E1',
           title: 'INSERT / UPDATE / DELETE 的坑',
-          status: 'doing',
+          status: 'done',
           weight: '中',
           estimate: '45 min',
+          actual: '54 min（1.2×）',
           plan: '亲身经历一次"UPDATE 忘写 WHERE"，理解为什么它比想象中危险。',
+          metrics: [
+            '实际用时：2026-10-02 17:36 开讲 ~ 检验通过 · 54 min（规划 45 min，1.2×）',
+            '分四批：批次一 制造事故（实验 1~9）→ 批次二 safe update mode 的三种反应（实验 10~15）→ 批次三 事务内试错 + DELETE（实验 16~24）→ 批次四 批量 INSERT 两种写法计时（实验 25~29）',
+            '讲前预演：29 条实验全部先在容器里跑通（第 5 次预演）。预演本身没发现教案逻辑错误，但【预期输出写错一处】—— 实验 14 我写 "5 rows affected"，实际是 "Rows matched: 5 / Changed: 4"',
+            '学生状态：开场就说"学得好累、学不下去了"。处理方式：把 E1 拆成四批 + 给出中途收工点（实验 21），实际四批全部跑完',
+            '检验：Q1 ✅（本质对，缺参数名 autocommit）、Q3 ✅（事务里改完再 ROLLBACK，写得漂亮）、Q4 ✅（OVER () 的默认帧答对，与 D3 同名题形成反转对照）、Q2 ⚠️ ②半对 → 换成 DELETE 场景重问（3 句话、不跑 SQL）后放行',
+            '⚠️ 用户在 Q2 未通过时主动要求「我已经知道了，直接开始下个阶段」想跳过关卡 —— 处理：不硬顶、也不放行，把重问压缩成"口述 3 句话"的最小关卡，答对后放行。此处理方式记入 pitfalls 备用',
+            '额外收获 1：实验 14 的 Rows matched: 5 / Changed: 4 引出「executeUpdate() 返回的是 changed 不是 matched」（对日开发实盘陷阱）',
+            '额外收获 2：学生重跑「造回 5 行」时表里 id 变成 11~15（DELETE 不重置自增）→ 直接成为 E2 的活教材'
+          ],
           concepts: [
             'UPDATE / DELETE 忘写 WHERE 会改全表（用事务或备份救）',
             '批量 INSERT 的写法与性能差异',
             'safe update mode（sql_safe_updates）'
           ],
-          experiment: { file: null, sql: [], expected: '待设计：在独立的小表上故意验证影响行数 Rows matched / Changed' },
-          findings: [],
-          pitfalls: [],
-          quiz: []
+          dataset: {
+            label: '实验开始前的数据（t_account / t_bulk 都由本节实验现场建出）',
+            note: '两张练习表都是本节现造的：t_account 用来当"被手滑改坏的生产表"（5 行、balance 各不相同，方便一眼看出"全被改了"；id 是主键，用来演示 safe mode 的判据）；t_bulk 只用来量批量 INSERT 的耗时（只有 id / val 两列，把变量降到最少），本节开始时【是空表】。',
+            tables: [
+              {
+                name: 't_account',
+                columns: ['id', 'owner', 'balance'],
+                focus: ['id'],
+                rows: [
+                  [1, 'Alice', 1000],
+                  [2, 'Bob', 2000],
+                  [3, 'Carol', 3000],
+                  [4, 'Dave', 4000],
+                  [5, 'Eve', 5000]
+                ],
+                note: '实验 1~3 建出来的初始状态。⚠️ 批次三 `DELETE FROM t_account;` 把 5 行删光后，表**还在**、但自增计数器【不会回到 1】—— 下次 INSERT 拿到的 id 是 6 起（用户重跑时实际拿到 11~15）。这个"残留"是 E2 的正题。',
+                ddl: "CREATE TABLE `t_account` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `owner` varchar(20) DEFAULT NULL,\n  `balance` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              },
+              {
+                name: 't_bulk',
+                columns: ['id', 'val'],
+                focus: ['id'],
+                rows: [],
+                note: '本节开始时是空表（建完就交给两种写入方式去填）。两种方式各插 1000 行，写完是 1000 行。',
+                ddl: "CREATE TABLE `t_bulk` (\n  `id` int NOT NULL,\n  `val` int DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+              }
+            ]
+          },
+          experiment: {
+            file: 'lab14.sql',
+            sql: [
+              '-- 【批次一】实验1~3：建一张"会被改坏的生产表"',
+              'DROP TABLE IF EXISTS t_account; CREATE TABLE t_account (id INT PRIMARY KEY AUTO_INCREMENT, owner VARCHAR(20), balance INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;',
+              "INSERT INTO t_account (owner, balance) VALUES ('Alice',1000),('Bob',2000),('Carol',3000),('Dave',4000),('Eve',5000); SELECT * FROM t_account;  -- 5 行 1000~5000",
+              '-- 实验4【先猜】这条 SQL 会改几行？为什么？',
+              '-- 【批次一】实验5~8：事故现场 —— 一个漏写的 WHERE 改了 5 行，ROLLBACK 救不回来',
+              'UPDATE t_account SET balance = 0;  -- Query OK, 5 rows affected / Rows matched: 5  Changed: 5',
+              'SELECT * FROM t_account;  -- 5 行 balance 全变 0',
+              'ROLLBACK;  -- Query OK, 0 rows affected ← 什么都没发生（autocommit=1，事务早提交了）',
+              'SELECT * FROM t_account;  -- 还是全 0，救不回来',
+              '-- 实验9：没有备份的人只能重建（DROP + CREATE + INSERT）',
+              '-- 【批次二】实验10~15：safe update mode 的三种反应（判据 = WHERE 有没有用到键列）',
+              'SET sql_safe_updates = 1;',
+              'UPDATE t_account SET balance = 0;  -- ERROR 1175（完全没写 WHERE）',
+              "UPDATE t_account SET balance = 0 WHERE owner = 'Alice';  -- 还是 ERROR 1175（owner 无索引，不是键列）",
+              'UPDATE t_account SET balance = 666 WHERE id = 1;  -- 放行，1 行',
+              'UPDATE t_account SET balance = 666 WHERE id > 0;  -- ⚠️ 放行！Rows matched: 5 / Changed: 4 ← 护栏只验"钥匙在不在手上"，不验"你要开多大的门"',
+              'SET sql_safe_updates = 0;',
+              '-- 【批次三】实验16~21：正确姿势 —— 先开事务，看完后果再决定（本节核心交付）',
+              '-- 重建数据后依次：START TRANSACTION; → UPDATE t_account SET balance = 0; → SELECT（事务内已是全 0）→ ROLLBACK; → SELECT（1000~5000 全回来）',
+              '-- 【批次三】实验22~24：DELETE 是同一回事',
+              'DELETE FROM t_account;  -- Query OK, 5 rows affected',
+              'SELECT COUNT(*) FROM t_account;  -- 0',
+              "SHOW TABLES LIKE 't_account';  -- ⚠️ 表结构还在（这是与 E2 的 TRUNCATE / DROP 的分界点）",
+              '-- 【批次四】实验25~29：批量 INSERT 两种写法（退出客户端，在终端用 time 计时）',
+              '-- 方式1：1000 条单行 INSERT（= 1000 次往返 + 1000 个事务）',
+              "time (for i in $(seq 1 1000); do echo \"INSERT INTO t_bulk (id, val) VALUES ($i, $i);\"; done | docker exec -i mysql-learn mysql -uroot -p666666 learn 2>/dev/null)  -- 实测 0.935s",
+              '-- 方式2：1 条多值 INSERT（= 1 次往返 + 1 个事务）',
+              "time ({ echo -n \"INSERT INTO t_bulk (id, val) VALUES \"; seq 1 1000 | awk '{printf \"%s(%d,%d)\", (NR>1?\",\":\"\"), $1, $1}'; echo ';'; } | docker exec -i mysql-learn mysql -uroot -p666666 learn 2>/dev/null)  -- 实测 0.076s（约 12 倍）"
+            ],
+            expected: '实验3 → 5 行 1000/2000/3000/4000/5000；实验5 → Query OK, 5 rows affected + Rows matched: 5  Changed: 5（学生预测"所有行都变 0"✅）；实验7 → Query OK, 0 rows affected（什么都没发生）；实验8 → 仍是全 0；实验9 → 重建后 5 行恢复；实验11 → ERROR 1175；实验12 → 还是 ERROR 1175；实验13 → Query OK, 1 row affected；实验14 → Query OK, 4 rows affected + Rows matched: 5  Changed: 4（⚠️ 学生预测"不会拦"✅，但 affected 是 4 不是 5，因为我原预期写错了）；实验19 → 事务内全 0；实验21 → 1000~5000 全回来；实验23 → 0；实验24 → 表仍在；实验27/28 → 0.935s vs 0.076s（约 12 倍），两边都是 1000 行',
+            errors: '实验5 若只改了 1 行 → 手滑带了 WHERE，或表里只有 1 行；实验7 之后数据回来了 → 之前开过 START TRANSACTION 没提交，先 ROLLBACK/COMMIT 清干净；实验11 没报错 → sql_safe_updates 没设上（可能打在另一个会话里），用 SELECT @@sql_safe_updates; 确认；实验12 通过了没报错 → owner 上意外有索引（SHOW INDEX FROM t_account;）；实验14 被拦了 → 版本判据更严，需改结论；实验28 报语法错 → awk 生成的括号串末尾多了逗号（预演踩过：`..., ;`）。⚠️ 本条为预演期真实踩坑记录',
+            evidence: '四批全部与实测一致：批次一 Query OK, 5 rows affected / Rows matched: 5  Changed: 5 → SELECT 全 0 → ROLLBACK 后仍全 0 → 重建成功；批次二 ERROR 1175（无 WHERE）、ERROR 1175（owner 非键列）、Query OK 1 row（id=1）、Query OK 4 rows affected + Rows matched: 5  Changed: 4（id>0，放行但改全表）；批次三 事务内 SELECT 全 0 → ROLLBACK → 1000~5000 全回来；DELETE 5 行 + COUNT=0 + SHOW TABLES 仍有 t_account；批次四 0.935s（9% cpu）vs 0.076s（66% cpu），两边 COUNT 均 1000。检验 4 题 + 1 次重问后全部通过',
+            snapshot: 't_account 5 行（id 1~5，balance 1000~5000）；t_bulk 空表',
+            caveat: '⚠️ 预演脚本两次踩坑：① macOS 的 `seq` 只支持一个 %g（`seq -f "(%g,%g)"` 报 invalid format string）；② awk 拼括号串时末尾会多一个逗号，导致 INSERT 静默失败、COUNT 得 0。生成式 SQL 必须自己先跑通再交给学生。'
+          },
+          findings: [
+            '⭐ UPDATE / DELETE 忘写 WHERE = 全表操作。SQL 描述的是【范围】，不是【意图】：你脑子里想的是"把 Alice 的余额清零"，语句说的是"把这张表所有行清零"。你想什么不重要，你写的范围才重要',
+            'autocommit = 1（默认）时，每条语句自己就是一个事务，执行完立刻提交 → 事后再敲 ROLLBACK 是空操作（Query OK, 0 rows affected），数据救不回来。只有先 START TRANSACTION，ROLLBACK 才有东西可撤',
+            '两道保险的定位不同：sql_safe_updates 是「操作事故护栏」（拦手滑），START TRANSACTION 是「可撤销的工作区」（改完先看再决定）',
+            'safe update mode 的判据只有一条：WHERE 里有没有用到一个键列（KEY column，即有索引的列）。owner 无索引 → 拦；id 是主键 → 放行',
+            "⭐ safe update mode 只验「钥匙在不在你手上」，不验「你要开多大的门」：WHERE id > 0 用到了主键 → 放行 → 照样改全表。口诀：能防「忘写 WHERE」，防不住「WHERE 写错范围」",
+            'sql_safe_updates 是【会话级】变量：SET 之后只对当前会话有效，exit 重连恢复成服务器默认值 0。注意图形工具（MySQL Workbench 的 Safe Updates）默认是开的、命令行默认是关的 → 同一个操作在两个工具里表现不一样',
+            '⭐ Rows matched ≠ rows affected：状态行里那个 "N rows affected" 报的是【Changed】（值真的变了的行数），不是 WHERE 匹配到的行数。id=1 原本已是 666，再 UPDATE 成 666 不计入 changed → Rows matched: 5 / Changed: 4 / Query OK, 4 rows affected。⚠️ Java 的 executeUpdate() 返回的就是这个 changed 值 → 用 rows > 0 判断"记录存不存在"会踩坑（把值改成和原来一样会返回 0）',
+            'DELETE 把数据删光后【表结构还在】（SHOW TABLES 仍有 t_account）—— 这是与 E2 的 TRUNCATE / DROP 的分界点：DELETE 是"擦掉本子上的字"，DROP 是"把本子撕了"',
+            'DELETE 也不会重置自增计数器：删光 5 行后再 INSERT，拿到的 id 从 6 开始（本课实测直接跳到 11~15）。想回到 1 得靠 TRUNCATE 或 ALTER TABLE ... AUTO_INCREMENT = 1',
+            '⭐ 批量 INSERT：同样 1000 行，1000 条单行语句 0.935s vs 1 条多值语句 0.076s（约 12 倍）。差距不在"算数据"——time 输出显示方式1 的 CPU 占用只有 9%（其余全在等待），而在 ① 往返次数 1000 次 vs 1 次 ② 事务数 1000 个 vs 1 个（每个事务都要提交刷盘）。行数越多差距越大',
+            '窗口函数补强（Q4）：默认帧随 ORDER BY 在不在而不同 —— OVER (ORDER BY x) → RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW；OVER () → RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING（MySQL 8.0 文档 14.20.3 原文）。同一个字符串在一处对、一处错'
+          ],
+          pitfalls: [
+            '（AI）【预期输出写错】实验 14 我预演时只看了最后的 SELECT（全是 666），没看状态行，把预期写成 "5 rows affected"，实际是 "Rows matched: 5 / Changed: 4" —— 学生跑出来才发现我错了。教训：预演必须看【状态行】（affected / matched / changed），不能只看结果集',
+            '（AI）预演脚本两次踩坑：① macOS 的 seq 只支持一个 %g（seq -f "(%g,%g)" 报 invalid format string）；② awk 拼括号串末尾多一个逗号 → INSERT 静默失败、COUNT 得 0。生成式 SQL 必须自己先跑通再交给学生',
+            '（学生）实验 4 只写了预测的【结果】（"所有行的 balance 都变成了 0"），没写"为什么"（没写 WHERE = 没有范围限定）。结果对 ≠ 讲得出',
+            '（学生）Q2 只答出机制（"判据是 WHERE 有没有键列"），答不出"能防住什么 / 防不住什么" —— 会描述机制、不会做定位判断，是老毛病（D3"会写 SQL、说不出为什么"）的又一次复现',
+            '（学生）⚠️ 检验未通过时主动要求跳过关卡（"我已经知道了，直接开始下个阶段吧"）—— 这正是 5.1 规则 1 要拦住的行为。处理：不硬顶、也不放行，把重问压缩成"口述 3 句话、不跑 SQL"的最小关卡，答对后放行。以后遇到同类要求沿用此法',
+            '（学生）重跑「造回 5 行」时得到 id 11~15，说明他对"DELETE 之后自增不归零"没有预期 —— 已作为 E2 的开场引子'
+          ],
+          quiz: [
+            {
+              q: '（Q1 原理）实验 7 里 ROLLBACK 救不回数据，实验 20 里同样一句 ROLLBACK 却救回来了。这两次差在哪一个前提上？请说清这个前提的默认值是什么。',
+              mine: 'Q1：前提在事务的状态不同。前一次敲完命令，事务就提交了，没办法回滚了。后一次单独开了一个事务，未提交之前还可以回滚。',
+              note: '✅ 通过。本质完全正确（差在没点出参数名），已补：那个"敲完就自动提交"的开关叫 autocommit，默认值 1（SELECT @@autocommit 实测 = 1）。'
+            },
+            {
+              q: '（Q2 原理 · 面试向）sql_safe_updates 拦住了 WHERE owner = \'Alice\'，却放过了 WHERE id > 0。① 它的判据到底是什么？② 所以它能防住什么、防不住什么？',
+              mine: 'Q2：他判断依据就是where条件是不是有键列。只能防住不用键列的更新，防不住在键列字段上大范围更新。',
+              note: '⚠️ ① ✅ 完全正确（判据 = WHERE 有没有用到一个键列）。② 半对 —— 把①的机制又复述了一遍，没回答"能防住什么、防不住什么"。已讲清心智模型：它防的是【人手滑漏写 WHERE】这个操作事故；它保证的是"WHERE 至少用到一个索引列来定位"；它不保证"范围大小"。然后换成 DELETE 场景重问。'
+            },
+            {
+              q: '（Q2 重做 · 换成 DELETE，只要求口述、不跑 SQL）① 「safe update mode 能防 ______，防不住 ______。」② DELETE FROM t_account WHERE balance > 0; 与 DELETE FROM t_account WHERE id <= 5; 分别被拦还是放行？③ 哪条更危险？为什么这恰好印证了①？',
+              mine: '1、能防忘写where，放不住where的范围\n2、A拦截，B放行\n3、B更危险。因为他管不住where的范围。',
+              note: '✅ 三句全对（"放不住"是"防不住"的笔误）。① 口诀正确；② A 被拦（balance 无索引）、B 放行（id 是主键）—— 与预演实测一致；③ 危险的正是不被拦的 B，因为护栏只验键列、不验范围。E1 至此放行。'
+            },
+            {
+              q: '（Q3 动手）现在 t_account 的 balance 是 1000/2000/3000/4000/5000。请写出一串命令，把余额最低的那个人改成 9999，但跑完之后数据必须原封不动。',
+              mine: '（贴了完整终端记录）start transaction; → select * from t_account; → select id from t_account where balance in (select min(balance) from t_account);  -- 1 → update t_account set balance=999 where id=1;  -- 1 row affected → select *（Alice 999）→ rollback; → select *（1000~5000 全回来）',
+              note: '✅ 通过，写得漂亮。三个要点全中：① 先 START TRANSACTION 再动手；② 先用 SELECT 定位出"余额最低的那个人"（id=1）而不是猜；③ 改完先 SELECT 确认后果，再 ROLLBACK。⚠️ 一个小提醒：他先用 SELECT 取出 id 再 UPDATE，恰好避开了"UPDATE 的同时子查询读同一张表"的 1093 类问题，是好习惯，但他未必知道原因 —— 留到 L2/L3 再补。'
+            },
+            {
+              q: '（Q4 回忆 · 防遗忘）回到 D3：SUM(balance) OVER (ORDER BY id) 和 SUM(balance) OVER () 分别算出什么？为什么加一个 ORDER BY 含义就变了（要说出默认窗口帧的名字）？',
+              mine: 'Q4:SUM(balance) OVER (ORDER BY id) 是按照id排序后，算出balance从第一行累加到当前行为止的值。SUM(balance) OVER ()，所有值都是全体的总和。后者窗口帧是 RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
+              note: '✅ 三个点全对，包括最后那个默认帧 —— MySQL 8.0 文档 14.20.3 原文确认：Without ORDER BY 时默认帧就是 RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING。⭐ 这是 D3 同名题的反转：D3 问的是 OVER (ORDER BY hire_date)，当时他答 UNBOUNDED FOLLOWING 是错的（正确是 CURRENT ROW）；这次问 OVER ()，同一个字符串反而对了。已把两种情况做成配对表锁死。'
+            }
+          ]
         },
         {
           id: 'E2',
           title: 'TRUNCATE vs DELETE vs DROP + 行转列/列转行',
-          status: 'todo',
+          status: 'doing',
           weight: '高',
           estimate: '60 min',
           plan: '搞清三者的行为差异（含自增计数器、能否回滚），并掌握行转列的写法。',
