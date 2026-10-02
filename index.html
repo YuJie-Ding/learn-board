@@ -2644,7 +2644,9 @@ window.ROADMAP_DATA.levels.push({
             '自增计数器不影响数据的锁：DELETE 逐行加 X 行锁且锁到事务结束，并发下会长时间堵人；TRUNCATE 是 DDL 只拿 MDL，不逐行加行锁 → 所以"一瞬间"完成（L4 正题）',
             '📌 时间测量：交互式下用 `SET @t := SYSDATE(6)` 手工打时间戳会把"人手速"算进去 → 必须看 mysql 客户端自报的 `(0.xx sec)`',
             '10 万行实测（容器内，复测 3 轮，可复现）：DELETE 0.14~0.18s vs TRUNCATE 0.011~0.015s ≈ 10 倍；客户端自报 0.18 vs 0.01 ≈ 18 倍。原因：DELETE 逐行删 + 逐行写 undo log + 逐行维护索引，代价随行数增长；TRUNCATE 只做"丢页 + 建页"，代价与行数无关',
-            '⭐⭐ `executeUpdate()` 返回的是 Changed 不是 Matched —— 实测三种场景：① 值没变（UPDATE ... SET balance=1000 WHERE id=1，而它本来就是 1000）→ **0** ② WHERE 没命中（id=99999 不存在）→ **0** ③ 真的改了 → 1。⚠️ 前两种含义完全不同却都返回 0 ⇒ **绝不能用 `rows > 0` 判断"记录是否存在"**',
+            '⭐⭐ UPDATE 之后「改了几行」这件事，服务端同时返回**两个**数：`Rows matched`（WHERE 命中几行）和 `Changed`（值真的变了几行）。⚠️ 客户端报出来的那一个取决于连接能力位 **CLIENT_FOUND_ROWS**：不带该位 → 报 Changed；带该位 → 报 matched。',
+            '⭐⭐ 实测三场景 × 两种连接（pymysql 可精确控制该能力位，2026-10-02 验证）：\n① 值没变（UPDATE SET balance=1000 WHERE id=1，本来就是 1000）→ 不带位 **0** / 带位 **1**\n② 记录不存在（WHERE id=99999）→ 不带位 0 / 带位 0\n③ 真的改了 → 不带位 1 / 带位 1\n⇒ **mysql 命令行不带该位**（所以它才能同时打印 Rows matched 5 / Changed 4）；**MySQL Connector/J 默认 `useAffectedRows=false`，即【带】该位**（官方属性表：useAffectedRows 默认值 false）',
+            '⚠️ 由此推翻一个常见说法：「Java 里绝不能用 `executeUpdate() > 0` 判断记录存不存在」—— 在 **Connector/J 默认配置下它是可用的**（返回 matched，记录不存在才是 0）。真正的坑是：**同一个 Java 代码，只要把连接串加上 `useAffectedRows=true`（或换驱动/换语言/换数据库），返回值语义就从 matched 变成 changed，`if (rows == 0)` 立刻开始误判**。这也是部分团队（如 MyBatis 用户）特意配 `useAffectedRows=true` 的原因 —— 官方文档说它能让 `INSERT ... ON DUPLICATE KEY UPDATE` 拿到"正确"的计数',
             '📌 `information_schema.TABLES.AUTO_INCREMENT` 在 MySQL 8.0 默认缓存 86400 秒 → 会读到过期值；要看真值先 `SET SESSION information_schema_stats_expiry = 0;`'
           ],
           pitfalls: [
