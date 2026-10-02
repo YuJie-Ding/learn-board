@@ -849,6 +849,7 @@ window.ROADMAP_DATA.levels.push({
   subtitle: '从"会写 CRUD"到"能独立写出面试手撕题"',
   status: 'doing',
   goal: '掌握 SELECT 的完整执行骨架，能独立写出多表 JOIN、分组取 TopN、窗口函数三类高频手撕题。',
+  nextAction: '⭐ L1 的 15 节课（A~E）已全部 done。下一动作不是 L2，而是【阶段①综合检验】：AI 扮面试官 20~30 分钟，覆盖 A~E 全部内容（见 MySQL学习指导.md 5.1 规则 2）。通过后：本文件 L1 status → done，plan.js 里 L1 → done、L2 → doing（两处一起改）。',
   estimate: '15 节 · 净学习约 11 小时 · 加 LeetCode 30 题共约 20 小时',
   interviewRefs: ['Q11 COUNT 家族', 'Q18 WHERE vs HAVING', '手撕题：分组取 TopN / 连续 N 天'],
 
@@ -2590,10 +2591,20 @@ window.ROADMAP_DATA.levels.push({
         {
           id: 'E2',
           title: 'TRUNCATE vs DELETE vs DROP + 行转列/列转行',
-          status: 'doing',
+          status: 'done',
           weight: '高',
           estimate: '60 min',
+          actual: '78 min（1.3×）',
           plan: '搞清三者的行为差异（含自增计数器、能否回滚），并掌握行转列的写法。',
+          metrics: [
+            '实际用时：2026-10-02 18:31 ~ 19:49 · **78 min（推算）**（规划 60 min，1.3×）',
+            '⚠️ 本课 AI 漏跑了 `pace.sh start E2`（规则 15 要求在开讲那一刻跑），start / end 两条记录都是事后按会话时间戳回填的 —— `pacing.jsonl` 里带 `src:"est"` 标记',
+            '分两批：批次一 删除三兄弟（实验 1~35）→ 批次二 行转列 / 列转行（实验 1~13，全英文数据）',
+            '讲前预演：两批实验全部先跑通；批次二预演后按用户要求把数据改成全英文并重跑一遍取准预期值',
+            '本课 AI 出错两次：① 计时方法（SYSDATE 手工打时间戳）把学生手速算进去；② 把 mysql 命令行的 RowCount 语义当成 JDBC 的，误判学生答对的 Q4。两次都在回复中明确认错 + 给实测证据',
+            '检验：批次一批 Q1 ✅ / Q2 ✅ / Q3 缺"为什么" → 追问后通过 / Q4 ❌（被 AI 误判，实为 ✓）；批次二 Q2 ✅ / Q4 ✅ / Q1、Q3 各缺一句理由 → 补答后通过',
+            '用户新增要求：实验数据一律用英文 → 已写入 `MySQL学习指导.md` 规则 16（并把陈旧的标题“12 条规则”改为“16 条”）'
+          ],
           concepts: [
             'DELETE 逐行删、可回滚、带 WHERE；TRUNCATE 直接重建、不可回滚、重置自增；DROP 连表结构一起删',
             'TRUNCATE 的"表结构还在但自增从 1 开始"要动手验证',
@@ -2647,7 +2658,17 @@ window.ROADMAP_DATA.levels.push({
             '⭐⭐ UPDATE 之后「改了几行」这件事，服务端同时返回**两个**数：`Rows matched`（WHERE 命中几行）和 `Changed`（值真的变了几行）。⚠️ 客户端报出来的那一个取决于连接能力位 **CLIENT_FOUND_ROWS**：不带该位 → 报 Changed；带该位 → 报 matched。',
             '⭐⭐ 实测三场景 × 两种连接（pymysql 可精确控制该能力位，2026-10-02 验证）：\n① 值没变（UPDATE SET balance=1000 WHERE id=1，本来就是 1000）→ 不带位 **0** / 带位 **1**\n② 记录不存在（WHERE id=99999）→ 不带位 0 / 带位 0\n③ 真的改了 → 不带位 1 / 带位 1\n⇒ **mysql 命令行不带该位**（所以它才能同时打印 Rows matched 5 / Changed 4）；**MySQL Connector/J 默认 `useAffectedRows=false`，即【带】该位**（官方属性表：useAffectedRows 默认值 false）',
             '⚠️ 由此推翻一个常见说法：「Java 里绝不能用 `executeUpdate() > 0` 判断记录存不存在」—— 在 **Connector/J 默认配置下它是可用的**（返回 matched，记录不存在才是 0）。真正的坑是：**同一个 Java 代码，只要把连接串加上 `useAffectedRows=true`（或换驱动/换语言/换数据库），返回值语义就从 matched 变成 changed，`if (rows == 0)` 立刻开始误判**。这也是部分团队（如 MyBatis 用户）特意配 `useAffectedRows=true` 的原因 —— 官方文档说它能让 `INSERT ... ON DUPLICATE KEY UPDATE` 拿到"正确"的计数',
-            '📌 `information_schema.TABLES.AUTO_INCREMENT` 在 MySQL 8.0 默认缓存 86400 秒 → 会读到过期值；要看真值先 `SET SESSION information_schema_stats_expiry = 0;`'
+            '📌 `information_schema.TABLES.AUTO_INCREMENT` 在 MySQL 8.0 默认缓存 86400 秒 → 会读到过期值；要看真值先 `SET SESSION information_schema_stats_expiry = 0;`',
+            '【批次二】行转列三件套：`GROUP BY`（谁当行）× `CASE WHEN`（值摆到哪一列）× 聚合函数（一格有多个值时怎么合）',
+            '⭐ 为什么行转列只能手写：SQL 的「列」在写语句那一刻就固定了，而行转列要产生的【列名来自数据里的值】—— 数据库解析语句时不可能预知表里有哪些科目，所以列名只能由【人】写死。推论：Oracle / SQL Server 的 `PIVOT` 也只是语法糖，这是 SQL 语言结构决定的，不是 MySQL 缺功能',
+            '不写 GROUP BY 的后果（实测）：8 行 → 每行只有一格有值、其余 NULL，看着像转了其实没转。`GROUP BY` 才是「把多行压成一行」的机器',
+            '`CASE WHEN ... THEN x END` 不写 `ELSE` 时默认给 NULL —— 这正是「没有该科目」能自然显为 NULL 的原因，不需要手动造 NULL',
+            '一格多个候选值时的分岔（实测）：Alice 的 math 有 90 和 95 → `MAX`=95（取最高）、`SUM`=185（加总）、`COUNT`=2（有几条）。取哪个是【业务语义】问题，不是技术问题',
+            '⚠️ `COUNT(*)` 数的是「一组里有几行」，不是「有几个科目」。Alice 3 科目 3 行时两者巧合相同；实验 7 加一条补考后变成 4 行 / 3 科目才分岔 → 要数科目得用 `COUNT(DISTINCT subject)`',
+            '列转行 = 几段 SELECT 用 `UNION ALL` 拼起来；【第一段的列名】决定最终列名',
+            '⚠️ 列转行必须加 `WHERE 列 IS NOT NULL`：否则宽表里的 NULL 会被伪造成一行真实记录（实测 8 行 → 9 行，多出 `Bob | english | NULL`）',
+            '列转行用 `UNION ALL` 不用 `UNION`：三段之间天然不重复，用 UNION 白搭一次去重 + 排序',
+            '另一种「把一组值收进一格」的思路：`GROUP_CONCAT(CONCAT(subject,":",score) ORDER BY subject SEPARATOR " | ")`（实测 Alice → `english:78 | math:95 | math:90 | science:85`）。⚠️ 同一排序键（math）内部的先后不保证 —— D2 那条「并列时顺序由引擎决定」再次生效',
           ],
           pitfalls: [
             '（AI）⭐【教案 bug · 第 5 次被抓，且是"预演通过却仍然错"的第一次】实验 32~35 让学生用 `SET @t := SYSDATE(6)` 手工打时间戳测 DELETE / TRUNCATE，但该方法的计时范围包含"学生两次回车之间的间隔"→ 学生交互式测出 TRUNCATE 0.648s > DELETE 0.242s，与客户端自报的 0.01s / 0.18s 完全矛盾。根因：我用【批量模式】预演（无人工延迟），没有复刻学生的【交互式】操作方式。已在回复中向学生认错并给出复测数据（3 轮：DELETE 0.14~0.18s vs TRUNCATE 0.011~0.015s）。教训：**预演必须复刻学生的操作方式**',
@@ -2655,9 +2676,58 @@ window.ROADMAP_DATA.levels.push({
             '（AI）上一条错误的根因：我把"mysql 命令行打印 Rows matched: 5 / Changed: 4"这个**命令行**现象，直接外推成了"所有客户端都返回 Changed"。实际服务端**同时返回两个数**，客户端报哪个取决于 CLIENT_FOUND_ROWS 能力位',
             '（学生）Q4 第一次直接拒答（"我不知道，不想管这个"）→ 处理：说明它是 E1 的复习题、不退回 E1，但会进入阶段①综合检验；同时把题目压缩成"只要一个数字"的微检。学生随即作答（说明题目太长/太抽象时，压缩成单点判断题更有效）',
             '（学生）Q4 重做题（A/B 两条 SQL 返回值对比）**两问全对**：A 返回 0、B 返回 0（命令行语义下成立），并给出"先查询确认值不一样再去更新"的思路 ✅ —— 该思路不依赖任何连接参数，是稳妥解法（注意并发下 check-then-act 有 TOCTOU 风险，留到 L4）',
-            '（学生）Q3 只给了命令、没答"为什么"，追问后才补上（"因为表已经被 drop 了，重新建表就会让计数器清空"）✅ —— 与 D3/E1 同一个老毛病：会做、不会说'
+            '（学生）Q3 只给了命令、没答"为什么"，追问后才补上（"因为表已经被 drop 了，重新建表就会让计数器清空"）✅ —— 与 D3/E1 同一个老毛病：会做、不会说',
+            '（AI）⭐ E2 讲到验收才发现**漏跑了 `pace.sh start E2`** —— 已按会话时间戳回填 `pacing.jsonl`（带 `src:"est"`）并在 metrics 里注明「推算」。教训：`start` 要和「讲前确认后的第一批实验」绑成一个动作，不能只在脑子里记',
+            '（学生）⭐ **连续三次栽在同一个模式：结论能说出来、理由说不出来**（E1 的 Q2、E2 批次一的 Q3、批次二的 Q1/Q3）。处理：先讲清“循环论证”长什么样（“因为它不能自动做，所以只能手动做”），再换成用他【自己跑出的数据】追问。已明确告知：阶段①综合检验是面试官追问，专打这一层',
+            '（用户要求）实验数据一律用英文 —— 已写入 `MySQL学习指导.md` **规则 16**，并修正陈旧标题（0.3 节“12 条规则”→“16 条”）。⚠️ Redis / Java-Basic 两份指导**待同步**',
           ],
-          quiz: []
+          quiz: [
+            {
+              q: '（批次一 Q1 原理 · 面试必问）DELETE FROM t_account; 和 TRUNCATE TABLE t_account; 至少说 3 个不同点。',
+              mine: 'Q1:delete能带where，truncate不能。delete能回滚，truncate不能。TRUNCATE会刷新自增计数器，delete不能。都会保留表结构。',
+              note: '✅ 四点全对（能带 WHERE / 能回滚 / 自增计数器 / 表结构保留）。精度补充：TRUNCATE 是把自增【重置为 1】，“刷新”这个词太模糊。'
+            },
+            {
+              q: '（批次一 Q2 原理 · 陷阱）实验 19~23 里，为什么 TRUNCATE t_bulk（截断的是另一张表）会导致我对 t_account 的 ROLLBACK 失效？这个行为叫什么？',
+              mine: 'Q2:TRUNCATE会自动提交现在的事务。叫隐式提交陷阱。',
+              note: '✅ 正确。补充：MySQL 手册里的正式叫法是 **implicit commit（隐式提交）**，所有 DDL 都有这个行为。'
+            },
+            {
+              q: '（批次一 Q3 动手）t_account 已被 DROP。请给一串命令重建它，让它只有 5 行、且 id 严格是 1~5。（要说清怎么做 + 为什么）',
+              mine: 'Q3:CREATE TABLE t_account (id INT PRIMARY KEY AUTO_INCREMENT, owner VARCHAR(20), balance INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; INSERT INTO t_account (owner, balance) VALUES (\'Alice\',1000),(\'Bob\',2000),(\'Carol\',3000),(\'Dave\',4000),(\'Eve\',5000);',
+              note: '⚠️ 命令 ✅ 正确（表已 DROP，新建即全新计数器 → id 1~5），但“为什么”没答，追问后才补上。已补两个补充点：① 若表还在、只是被 DELETE 清空，`CREATE TABLE` 会报错，得用 `TRUNCATE`；② `ALTER TABLE ... AUTO_INCREMENT = 1` 这招【只能在表为空时生效】—— 表里还留着 id=6 的行时完全无效，下一条插入还是 7（2026-10-02 实测）'
+            },
+            {
+              q: '（批次一 Q4 回忆 / 批次二 Q4 重问）UPDATE t_account SET balance = 1000 WHERE id = 1;（它本来就是 1000）① mysql 命令行返回几？② Java（Connector/J 默认）executeUpdate() 返回几？③ 为什么不同？说出那个能力位名字。',
+              mine: '4、返回0。返回1。**`CLIENT_FOUND_ROWS`**',
+              note: '✅ 三空全对，包括能力位英文名。⭐ 这题背后有一段教训：AI 第一轮先预设答案 1，学生答 1 时又改判为错（说应为 0），还编了个“生产事故写法”的例子；等学生答完重做题，AI 查官方文档 + 用 pymysql 控制客户端能力位实测，才发现**学生原来的 1 就是对的**（Connector/J 默认 `useAffectedRows=false` → 会设 CLIENT_FOUND_ROWS → 返回 matched）。已在回复中完整认错。实测表：值没变 = 不带位 0 / 带位 1；记录不存在 = 0 / 0；真的改了 = 1 / 1。'
+            },
+            {
+              q: '（批次二 Q1 原理）行转列为什么必须用聚合函数？不写 GROUP BY 会得到什么？',
+              mine: '1、不写GROUP BY会导致很多冗余的行，这些行本来可以无损聚合在一块的。',
+              note: '⚠️ 半对。前半句（不写 GROUP BY → 冗余行）✅ 正确；但「为什么必须用聚合函数」没答到。已讲清：不写 GROUP BY → 每个原始行各占一行；写了 GROUP BY → 一格面对多个候选值（Alice 的 math 有 90 和 95）→ 必须由聚合函数决定取哪个。⇒ GROUP BY 是「压行的机器」，聚合函数是被它逼出来的必需项。'
+            },
+            {
+              q: '（批次二 Q1 补答 · 用学生自己跑出的实验 9 数据）Alice 的 math_keep_max = 95、math_add_up = 185，而 math_cnt = 2。① 同一格为什么能算出 95 和 185 两个不同的数？② 一句话：聚合函数在行转列里承担什么职责？',
+              mine: '1、因为有这个学生有两行学科都为math的行。max是最大值，而sum是累加。聚合函数负责把多行压缩成一行。',
+              note: '✅ 通过。三件事都说到：同科目有两行（math_cnt=2）、MAX 取最大 / SUM 累加、聚合函数把多行压成一行。'
+            },
+            {
+              q: '（批次二 Q2 动手）用 employees（8 行，dept 有 RD / SALES / MKT）写一条 SQL，输出一行三列：rd_cnt、sales_cnt、mkt_cnt。',
+              mine: "select count(case when dept='RD' then 1 end )as RD,\n        count(case when dept='SALES' then 1 end ) as SALES,\n        count(case when dept='MKT' then 1 end ) as MKT\n         from employees;",
+              note: '✅ 正确。三件套全中：CASE WHEN 做值→列映射、COUNT 把多行压成一行、没有 GROUP BY（整表压成一行，正是题目要的）。别名写成 RD/SALES/MKT 而不是题目给的 rd_cnt/...，不影响正确性。正确答案：RD=3、SALES=3、MKT=2。'
+            },
+            {
+              q: '（批次二 Q3 原理 · 跨库）MySQL 有 PIVOT / UNPIVOT 关键字吗？为什么行转列只能手写？（提示：列是什么时候确定的）',
+              mine: '3、没有。行转列不是数据库自带功能，所以只能手写。',
+              note: '⚠️ 半对。结论（MySQL 无 PIVOT/UNPIVOT）✅ 正确；但理由是【循环论证】——“因为它不能自动做，所以只能手动做”。已讲清真正的因果链：① SQL 的列在写语句那一刻就固定了；② 行转列要产生的列名来自数据里的值；③ 数据库解析语句时不可能预知表里有哪些科目 → 只能由人写死。'
+            },
+            {
+              q: '（批次二 Q3 补答）① 写 MAX(CASE WHEN subject=\'math\' ...) 的那一刻，数据库知道你表里有 math/science/english 三个科目吗？② 最终输出的三个列名到底是谁写出来的？',
+              mine: '2、我写的时候，数据库不知道我表里有什么数据，而我自己知道数据库有`math`/`science`/`english`三个科目。最终的三个列名，是我自己写出来的。',
+              note: '✅ 通过。两问都答对，抓住了关键点：列名是【人】写出来的，不是数据库自动产生的。'
+            }
+          ]
         }
       ]
     }
